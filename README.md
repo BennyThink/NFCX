@@ -36,10 +36,11 @@ Website: [nfcx.tools](https://nfcx.tools) · Downloads: [GitHub Releases](https:
 
 NFCX packages its NFC runtime. You do not need to install libnfc, mfoc, mfcuk, or a separate command-line NFC stack.
 
-- **PN532 + FT232RL:** install the FTDI virtual-COM/serial driver if your OS does not expose the adapter. On Linux, your account generally needs read/write serial access (commonly the `dialout` group).
-- **macOS:** an unsigned release can show a Gatekeeper warning. Signed and notarized releases avoid this once release credentials are configured.
-- **Windows:** install the adapter’s serial driver before starting NFCX. Do not replace the device with a generic USB driver for the PN532 UART path.
-- **ACR readers:** they are not supported by this release; do not assume a system PC/SC driver is sufficient.
+- PN532 + FT232RL: install the [FTDI virtual-COM/serial driver](https://ftdichip.com/drivers/) if your OS does not expose the adapter.
+- Linux: your account generally needs read/write serial access (commonly the `dialout` group). For example, run `sudo usermod -aG dialout $USER`, then sign out and back in. Running with `sudo` is also possible when you understand its implications.
+- macOS: an unsigned release can show a Gatekeeper warning. Use **System Settings → Privacy & Security** to allow it to open when prompted. Signed and notarized releases avoid this once release credentials are configured.
+- Windows: install the adapter’s serial driver before starting NFCX. Do not replace the device with a generic USB driver for the PN532 UART path.
+- ACR readers: they are not supported by this release; do not assume a system PC/SC driver is sufficient.
 
 ## Download and install
 
@@ -55,13 +56,19 @@ Release targets are macOS arm64, Windows amd64, and Linux amd64. Linux packages 
 1. Connect your NFC reader and launch NFCX.
 2. Refresh the reader list or enter the PN532 UART connection string.
 3. Put an authorized card on the reader and select **Scan Card**.
-4. Review the card information, then use **Read**, **Dump**, **Write**, or **Key Recovery** as appropriate.
+4. Review the card information, then use **Key Recovery**, **Read**, **Write**, or the guarded **Change UID** workflow as appropriate.
 
 Writing is deliberately guarded. NFCX validates dump geometry, BCC and access bits, authenticates before writing, and reads every written block back. Block 0 writes require an explicit special-card workflow.
 
 ## Screenshots
 
-Maintainers will add real screenshots to [`docs/images/`](docs/images/): `main-window.png`, `card-scan.png`, `mifare-tools.png`, and `about.png`. Until then, NFCX does not substitute fictional UI artwork.
+### Main window
+
+![NFCX main window](docs/images/main.jpg)
+
+### Key library
+
+![NFCX key library](docs/images/key-lib.jpg)
 
 ## Privacy and anonymous telemetry
 

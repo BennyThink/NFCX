@@ -30,7 +30,7 @@ check: test vet frontend-build
 
 dev:
 	@test -f "$(LIBNFC_SDK_DIR)/lib/pkgconfig/libnfc.pc" || (echo "libnfc SDK is missing; run make libnfc-build first" >&2; exit 2)
-	env PATH="$(LIBNFC_RUNTIME_DIR):$$PATH" PKG_CONFIG_PATH="$(LIBNFC_SDK_DIR)/lib/pkgconfig" DYLD_LIBRARY_PATH="$(LIBNFC_RUNTIME_DIR)" LD_LIBRARY_PATH="$(LIBNFC_RUNTIME_DIR)" CGO_ENABLED=1 wails dev -tags "$(NFCX_NATIVE_TAGS)"
+	env PATH="$(LIBNFC_RUNTIME_DIR):$$PATH" PKG_CONFIG_PATH="$(LIBNFC_SDK_DIR)/lib/pkgconfig" DYLD_LIBRARY_PATH="$(LIBNFC_RUNTIME_DIR)" LD_LIBRARY_PATH="$(LIBNFC_RUNTIME_DIR)" CGO_ENABLED=1 wails dev -forcebuild -tags "$(NFCX_NATIVE_TAGS)"
 
 build:
 	@test -f "$(LIBNFC_SDK_DIR)/lib/pkgconfig/libnfc.pc" || (echo "libnfc SDK is missing; run make libnfc-build first" >&2; exit 2)

@@ -411,11 +411,11 @@ func cardDTO(card nfc.CardInfo) CardDTO {
 	cardType, label := string(nfc.InferCardType(card)), "未知"
 	switch nfc.InferCardType(card) {
 	case nfc.CardTypeMIFAREMini:
-		label = "推测为 MIFARE Mini"
+		label = "MIFARE Mini"
 	case nfc.CardTypeMIFAREClassic1K:
-		label = "推测为 MIFARE Classic 1K"
+		label = "MIFARE Classic 1K"
 	case nfc.CardTypeMIFAREClassic4K:
-		label = "推测为 MIFARE Classic 4K"
+		label = "MIFARE Classic 4K"
 	}
 	return CardDTO{
 		Present:   true,

@@ -25,6 +25,7 @@
   "reader.connection": "设备连接",
   "reader.available": "可用设备",
   "reader.connect": "连接",
+  "reader.disconnected": "未连接",
   "reader.loading": "正在载入",
   "reader.waiting": "等待后端状态",
   "reader.refresh": "刷新设备",

@@ -36,7 +36,7 @@ func TestDashboardDTOJSONSerialization(t *testing.T) {
 
 func TestCardDTOLabelsInferenceAsNonAuthoritative(t *testing.T) {
 	dto := cardDTO(nfc.CardInfo{UID: []byte{0x04, 0xa1, 0xb2, 0xc3}, ATQA: [2]byte{0x00, 0x04}, SAK: 0x08})
-	if dto.UID != "04 A1 B2 C3" || dto.UIDLength != 4 || dto.Type != "推测为 MIFARE Classic 1K" || !dto.Inferred {
+	if dto.UID != "04 A1 B2 C3" || dto.UIDLength != 4 || dto.Type != "MIFARE Classic 1K" || !dto.Inferred {
 		t.Fatalf("unexpected card DTO: %+v", dto)
 	}
 	unknown := cardDTO(nfc.CardInfo{UID: []byte{1, 2, 3, 4}, SAK: 0x20})

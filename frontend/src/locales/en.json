@@ -25,6 +25,7 @@
   "reader.connection": "Reader connection",
   "reader.available": "Available readers",
   "reader.connect": "Connect",
+  "reader.disconnected": "Disconnected",
   "reader.loading": "Loading",
   "reader.waiting": "Waiting for backend status",
   "reader.refresh": "Refresh readers",

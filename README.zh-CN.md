@@ -36,10 +36,11 @@ NFCX 将读卡器发现、卡片信息、读取、受保护写入、原始 dump�
 
 NFCX 自带 NFC 运行时；不需要另外安装 libnfc、mfoc、mfcuk 或命令行 NFC 工具。
 
-- **PN532 + FT232RL：**若系统没有自动识别串口，请安装 FTDI 虚拟串口驱动。Linux 通常还需要让当前账户获得串口读写权限（常见为 `dialout` 组）。
-- **macOS：**未签名版本可能显示 Gatekeeper 警告；配置发布凭据后的签名并公证版本可以避免该问题。
-- **Windows：**启动 NFCX 前先安装适配器串口驱动。PN532 UART 路径不要替换成通用 USB 驱动。
-- **ACR 系列：**当前版本不支持；不能因为系统已有 PC/SC 驱动就假设可用。
+- PN532 + FT232RL：若系统未自动识别串口，请安装 [FTDI 虚拟串口驱动](https://ftdichip.com/drivers/)。
+- Linux：当前账户通常需要获得串口读写权限（常见为 `dialout` 组）。例如：`sudo usermod -aG dialout $USER`；重新登录后生效。也可以在明确了解风险的前提下，以 `sudo` 运行。
+- macOS：未签名版本可能显示 Gatekeeper 警告；可在“系统设置 → 隐私与安全性”中按提示允许打开。签名并公证的版本在发布凭据配置完成后可避免该提示。
+- Windows：启动 NFCX 前先安装适配器串口驱动。PN532 UART 路径不要替换为通用 USB 驱动。
+- ACR 系列：当前版本尚未测试
 
 ## 下载和安装
 
@@ -53,23 +54,32 @@ NFCX 自带 NFC 运行时；不需要另外安装 libnfc、mfoc、mfcuk 或命�
 1. 连接 NFC 读卡器并启动 NFCX。
 2. 刷新读卡器列表，或输入 PN532 UART connstring。
 3. 将获授权卡片放在读卡器上，选择 **Scan Card**。
-4. 查看卡片信息，再按需使用 **Read**、**Dump**、**Write** 或 **Key Recovery**。
+4. 查看卡片信息，再按需使用 **恢复密钥**、**读卡**、**修改 UID** 等功能。
 
-写入受到刻意保护：NFCX 会校验 dump 几何、BCC 与访问控制位，写入前认证，并对每个已写 block 回读。block 0 写入需要明确进入特殊卡流程。
+写入受到刻意保护：NFCX 会校验 dump 几何、BCC 与访问控制位，写入前认证，并对每个已写 block 回读。写入 block 0 需要明确进入特殊卡流程。
 
 ## 软件截图
 
-维护者将把真实截图添加到 [`docs/images/`](docs/images/)。目录预留 `main-window.png`、`card-scan.png`、`mifare-tools.png` 与 `about.png`；不会用虚构 UI 截图替代。
+### 主界面
+
+![NFCX 主界面](docs/images/main.jpg)
+
+### 密钥管理
+
+![NFCX 密钥管理](docs/images/key-lib.jpg)
 
 ## 隐私和匿名遥测
 
-匿名遥测完全可选。首次启动时可以选择是否启用，之后也能随时在 **About** 中更改。启用后，NFCX 只发送匿名安装标识、NFCX 版本、粗粒度操作系统类型、白名单功能事件和事件时间，用于了解功能使用情况与平台分布。
+匿名遥测完全可选。首次启动时可以选择是否启用，之后也能随时在 **关于** 中更改。
+启用后，NFCX 只发送匿名安装标识、NFCX 版本、粗粒度操作系统类型、白名单功能事件和事件时间，用于了解功能使用情况与平台分布。
 
 NFCX **不会**采集卡片 UID、Key A/Key B、dump、卡片内容、读卡器标识、用户名、设备名、Machine ID、文件路径、日志、IP 地址或其他个人信息。收集端不会保留原始请求头或 IP 数据。实现细节见[遥测规格](docs/specs/14-telemetry.md)。
 
 ## 许可证与第三方软件
 
-NFCX 源码使用 [MIT License](LICENSE)。NFCX 会动态链接 LGPL-3.0-or-later 的 libnfc，并重新分发独立的 GPL-2.0-or-later 密钥恢复可执行文件（mfoc、mfcuk、mfoc-hardnested），以及 BSD-2-Clause 的 `nfc-mfsetuid` 工具。这些均为独立许可的软件；发布包包含其 notice、源码位置、固定版本与 NFCX 补丁。
+NFCX 源码使用 [MIT License](LICENSE)。
+NFCX 会动态链接 LGPL-3.0-or-later 的 libnfc，并重新分发独立的 GPL-2.0-or-later 密钥恢复可执行文件（mfoc、mfcuk、mfoc-hardnested），以及 BSD-2-Clause 的 `nfc-mfsetuid` 工具。
+这些均为独立许可的软件；发布包包含其 notice、源码位置、固定版本与 NFCX 补丁。
 
 重新分发 NFCX 或其运行时前，请阅读 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
