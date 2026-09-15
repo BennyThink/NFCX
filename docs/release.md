@@ -14,6 +14,9 @@ GitHub Actions 的原生 runner 执行，不从 Linux 交叉编译其他平台�
 - `NFCX-<version>-linux-amd64.tar.gz`；
 - `SHA256SUMS`。
 
+macOS DMG 打开后包含 `NFCX.app`、指向系统 `/Applications` 的 `Applications` 目录链接，
+以及简短安装提示；将应用拖到该目录即可安装。
+
 首版正式支持 PN532 UART，包括 PN532 + FT232RL。其他 libnfc 读卡器驱动在完成
 对应平台硬件验收后再加入支持矩阵。
 

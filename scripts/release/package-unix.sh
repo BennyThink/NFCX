@@ -17,7 +17,19 @@ case "$PLATFORM" in
     UNSIGNED_SUFFIX=""
     [[ "${NFCX_UNSIGNED:-0}" == 1 ]] && UNSIGNED_SUFFIX="-unsigned"
     DMG="$DIST/NFCX-$VERSION-darwin-arm64$UNSIGNED_SUFFIX.dmg"
-    hdiutil create -volname "NFCX $VERSION" -srcfolder "$APP" -ov -format UDZO "$DMG"
+    DMG_STAGE="$REPO_ROOT/build/dmg-stage/NFCX-$VERSION"
+    [[ -d "$APP" ]] || { echo "application bundle is missing: $APP" >&2; exit 1; }
+    rm -rf "$DMG_STAGE"
+    mkdir -p "$DMG_STAGE"
+    cp -R "$APP" "$DMG_STAGE/NFCX.app"
+    ln -s /Applications "$DMG_STAGE/Applications"
+    cat > "$DMG_STAGE/Install NFCX.txt" <<'EOF'
+To install NFCX, drag NFCX.app to the Applications folder in this window.
+
+安装 NFCX：请将 NFCX.app 拖动到本窗口中的 Applications 目录。
+EOF
+    hdiutil create -volname "NFCX $VERSION" -srcfolder "$DMG_STAGE" -ov -format UDZO "$DMG"
+    rm -rf "$DMG_STAGE"
     if [[ -n "${NFCX_CODESIGN_IDENTITY:-}" ]]; then
       codesign --force --sign "$NFCX_CODESIGN_IDENTITY" --timestamp "$DMG"
     fi
