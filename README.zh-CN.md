@@ -6,9 +6,9 @@
 
 <p align="center"><a href="README.md">English</a> | <a href="README.zh-CN.md">简体中文</a></p>
 
-NFCX 将读卡器发现、卡片信息、读取、受保护写入、原始 dump、密钥管理和恢复流程集中到一个 macOS、Windows 与 Linux 桌面应用中，适用于你拥有或获准测试的 MIFARE Classic 卡片。
+NFCX 将读卡器发现、卡片信息、读取写入等功能集中到一个 macOS、Windows 与 Linux 桌面应用中，适用于你拥有或获准测试的 MIFARE Classic 卡片。
 
-市面上缺少这类真正跨平台的 NFC 图形化应用；NFCX 坚持开源，并用清晰、直接的 GUI 让 NFC 操作不再依赖零散的命令行工具。
+NFCX 坚持开源，并用清晰、直接的 GUI 让 NFC 操作不再依赖零散的命令行工具。
 
 官网：[nfcx.tools](https://nfcx.tools) · 下载：[GitHub Releases](https://github.com/BennyThink/NFCX/releases)
 
@@ -16,11 +16,11 @@ NFCX 将读卡器发现、卡片信息、读取、受保护写入、原始 dump�
 
 - 发现并连接 NFC 读卡器
 - 检测卡片并显示 UID、ATQA、SAK 与卡片类型。
-- 操作 MIFARE Classic 1K：使用 Key A/Key B 认证、读 block、编辑数据及写入变更。
+- 操作 MIFARE Classic 1K：使用 Key A/Key B 认证、读取编辑数据及写入变更。
 - 保存和加载兼容的原始 dump（`.bin` / `.mfd`）及并列元数据；恢复时执行容量、BCC、访问控制位和逐块回读检查。
 - 扫描常见密钥，并管理本地密钥目录。
 - 在已验证的 PN532 UART 读卡器上运行集成恢复流程：常见密钥、Darkside、Nested、Hardnested 与读取验证。
-- 对支持的 CUID/Gen2 和 Gen1A 卡片执行受保护的 4-byte UID/block 0 流程。 
+- 对支持的 CUID/Gen2 和 Gen1A 卡片执行受保护的 4-byte UID/block 0 写入。 
 
 # 支持的读卡器
 
@@ -53,7 +53,7 @@ NFCX 自带 NFC 运行时；不需要另外安装 libnfc、mfoc、mfcuk 或命�
 1. 连接 NFC 读卡器并启动 NFCX。
 2. 刷新读卡器列表，或输入 PN532 UART connstring。
 3. 将获授权卡片放在读卡器上，选择 **Scan Card**。
-4. 查看卡片信息，再按需使用 **恢复密钥**、**读卡**、**修改 UID** 等功能。
+4. 查看卡片信息，按需使用对应功能。
 
  
 # 软件截图
@@ -89,7 +89,7 @@ NFCX 会动态链接 LGPL-3.0-or-later 的 libnfc，并重新分发独立的 GPL
 - [下载发布版](https://github.com/BennyThink/NFCX/releases)
 - [文档索引](docs/README.md)
 
-请仅将 NFCX 用于你拥有或获得明确授权测试的卡片和系统。
+**请仅将 NFCX 用于你拥有或获得明确授权测试的卡片和系统。**
 
 # LICENSE
 MIT

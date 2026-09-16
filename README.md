@@ -8,7 +8,7 @@
 
 NFCX brings reader discovery, card information, reads, protected writes, raw dumps, key management, and recovery workflows into one desktop application for macOS, Windows, and Linux. It is for MIFARE Classic cards you own or are authorized to test.
 
-There are few truly cross-platform GUI apps of this kind; NFCX is open source and uses a clear, direct GUI so NFC work does not depend on a collection of command-line tools.
+NFCX is open source and uses a clear, direct GUI so NFC work does not depend on a collection of command-line tools.
 
 Website: [nfcx.tools](https://nfcx.tools) · Downloads: [GitHub Releases](https://github.com/BennyThink/NFCX/releases)
 
@@ -87,7 +87,12 @@ Read [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) before redistributing NFCX
 - [Download releases](https://github.com/BennyThink/NFCX/releases)
 - [Documentation index](docs/README.md)
 
-Use NFCX only with cards and systems you own or are explicitly authorized to test.
+
+# Responsible use
+
+NFCX is intended for interoperability, research, development, backup, and authorized security testing. 
+Use it only with cards and systems you own or have explicit permission to test. 
+You are responsible for complying with applicable laws and regulations.
 
 # LICENSE
 
