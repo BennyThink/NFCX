@@ -55,6 +55,97 @@ NFCX 自带 NFC 运行时；不需要另外安装 libnfc、mfoc、mfcuk 或命�
 3. 将获授权卡片放在读卡器上，选择 **Scan Card**。
 4. 查看卡片信息，按需使用对应功能。
 
+备注：PN532的UART/HSU模式示意图
+![uart.jpeg](docs/images/uart.jpeg)
+
+
+# 常见问题
+
+<details><summary>还需要读卡器吗？</summary>
+
+需要。NFCX 通过兼容的外接读卡器与实体 NFC 卡通信。
+</details>
+
+<details><summary>支持什么设备？</summary>
+
+已测试的组合是 PN532 + FT232RL。其他串口适配器理论上也可使用，但建议选用 FT232RL。请将 PN532 调至 UART/HSU 模式，并交叉连接数据线（PN532 RX 接串口 TX）。建议焊接连接，避免杜邦线接触不良。
+</details>
+
+<details><summary>能把门禁卡写入 iPhone 吗？</summary>
+
+NFCX 可以操作实体门禁卡，但 iPhone 中的卡不像普通白卡一样可任意写入。可考虑购买 NFC 卡贴，写入后贴在手机背面使用。
+</details>
+
+<details><summary>建议买什么卡片？</summary>
+
+建议准备 CUID 卡用于已获授权的测试；它通常支持修改 UID，且全 F 的 Key A 和 Key B 便于测试。
+</details>
+
+<details><summary>能复制门禁卡吗？</summary>
+
+取决于卡片类型和门禁系统的设计。请只对你拥有或获明确授权测试的卡片和系统操作。
+</details>
+
+<details><summary>为什么 NFCX 找不到读卡器？</summary>
+
+请检查串口位置、适配器驱动、设备是否被其他程序占用，以及当前系统账户是否拥有串口访问权限。
+</details>
+
+<details><summary>推荐买什么硬件？</summary>
+
+PN532 + FT232RL，再配多张 CUID 测试卡，是当前已验证的入门组合。
+</details>
+
+<details><summary>macOS、Linux 和 Windows 都支持吗？</summary>
+
+支持。NFCX 面向 macOS、Windows 和 Linux 构建；具体读卡器仍以已测试的硬件配置为准。
+</details>
+
+<details><summary>为什么能读 UID 但是修改不了？</summary>
+
+UID 所在的 block 0 默认不能写入。只有部分特殊的 Gen1/Gen2 卡，例如 CUID Magic Card 或部分复旦卡，才允许修改；普通卡不应尝试修改。
+</details>
+
+<details><summary>为什么 UID 一样还是开不了门？</summary>
+
+系统可能不仅验证 UID，还会验证其他扇区的数据，甚至使用滚动码。因此相同 UID 并不一定具有相同的访问权限。
+</details>
+
+<details><summary>什么是 Key A 和 Key B？</summary>
+
+它们是 MIFARE Classic 每个扇区使用的两把认证密钥。访问控制位决定各自可以读取或写入哪些数据；它们不是通用密码，也不应随意公开。
+</details>
+
+<details><summary>Darkside 和 Nested 是什么？</summary>
+
+它们是针对部分 MIFARE Classic 卡片已知弱点的密钥恢复方法。NFCX 仅在你拥有或获明确授权的测试场景中提供相应工作流。
+</details>
+
+<details><summary>能复制车钥匙吗？</summary>
+
+需要看厂商的具体设计。部分系统可能使用 NFC，但许多车钥匙采用其他无线协议、加密或滚动码；请仅处理你拥有或获授权测试的设备。
+</details>
+
+<details><summary>软件会上传我的数据吗？</summary>
+
+不会上传卡片 UID、密钥、dump、卡片内容或个人信息。匿名遥测仅在首次启动时由你选择开启，之后可随时关闭。
+</details>
+
+<details><summary>免费开源吗？</summary>
+
+是。NFCX 源码以 MIT License 发布；随发行版提供的第三方组件按各自许可证分发。
+</details>
+
+<details><summary>可以商用吗？</summary>
+
+NFCX 自身采用 MIT License，通常允许商用。若重新分发应用或其运行时组件，请同时遵守其中第三方组件各自的许可证义务。
+</details>
+
+<details><summary>可以赞助吗？</summary>
+
+可以。你可以通过 [GitHub Sponsors 赞助 NFCX](https://github.com/sponsors/BennyThink)。
+</details>
+
  
 # 软件截图
 
@@ -87,6 +178,7 @@ NFCX 会动态链接 LGPL-3.0-or-later 的 libnfc，并重新分发独立的 GPL
 - [官网](https://nfcx.tools)
 - [GitHub 仓库](https://github.com/BennyThink/NFCX)
 - [下载发布版](https://github.com/BennyThink/NFCX/releases)
+- [赞助 NFCX](https://github.com/sponsors/BennyThink)
 - [文档索引](docs/README.md)
 
 **请仅将 NFCX 用于你拥有或获得明确授权测试的卡片和系统。**

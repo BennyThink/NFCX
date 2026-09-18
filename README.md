@@ -54,6 +54,96 @@ NFCX packages its NFC runtime. You do not need to install libnfc, mfoc, mfcuk, o
 3. Place an authorized card on the reader and select **Scan Card**.
 4. Review the card information, then use **Key Recovery**, **Read Card**, or **Change UID** as needed.
 
+UART/HSU config: 
+![uart.jpeg](docs/images/uart.jpeg)
+
+# FAQ
+
+<details><summary>Do I still need a card reader?</summary>
+
+Yes. NFCX communicates with physical NFC cards through a compatible external reader.
+</details>
+
+<details><summary>Which hardware is supported?</summary>
+
+The tested combination is PN532 + FT232RL. Other serial adapters may work, but FT232RL is recommended. Set the PN532 to UART/HSU mode and cross the data lines (PN532 RX to the serial adapter’s TX). A soldered connection is recommended to avoid unreliable jumper wires.
+</details>
+
+<details><summary>Can I write an access card to an iPhone?</summary>
+
+NFCX can work with physical access cards, but cards in an iPhone cannot be written like ordinary blank NFC cards. Consider using a writable NFC sticker and attaching it to the back of the phone.
+</details>
+
+<details><summary>Which cards do you recommend?</summary>
+
+For authorized testing, CUID cards are a useful choice. They commonly support changing the UID, and their all-FF Key A and Key B are convenient for testing.
+</details>
+
+<details><summary>Can I clone an access card?</summary>
+
+It depends on the card type and access-control system design. Only work with cards and systems you own or are explicitly authorized to test.
+</details>
+
+<details><summary>Why can’t NFCX find my reader?</summary>
+
+Check the serial port, adapter driver, whether another program is using the device, and whether your current system account has permission to access the serial port.
+</details>
+
+<details><summary>What hardware should I buy?</summary>
+
+PN532 + FT232RL plus several CUID test cards is the currently validated starter combination.
+</details>
+
+<details><summary>Does it support macOS, Linux, and Windows?</summary>
+
+Yes. NFCX is built for macOS, Windows, and Linux; reader support still depends on the tested hardware configuration.
+</details>
+
+<details><summary>Why can I read the UID but not change it?</summary>
+
+Block 0, which contains the UID, is not writable by default. Only some special Gen1/Gen2 cards, such as CUID Magic Cards or some Fudan cards, allow changes; ordinary cards should not be modified.
+</details>
+
+<details><summary>Why does a matching UID still not open the door?</summary>
+
+The system may check more than the UID: it may validate data in other sectors or use a rolling code. A matching UID therefore does not guarantee the same access rights.
+</details>
+
+<details><summary>What are Key A and Key B?</summary>
+
+They are the two authentication keys used by each MIFARE Classic sector. Access bits determine what each key can read or write; they are not universal passwords and should not be shared carelessly.
+</details>
+
+<details><summary>What are Darkside and Nested?</summary>
+
+They are key-recovery techniques for known weaknesses in some MIFARE Classic cards. NFCX only exposes the related workflows for cards and systems you own or are explicitly authorized to test.
+</details>
+
+<details><summary>Can I clone a car key?</summary>
+
+It depends on the manufacturer’s design. Some systems may use NFC, but many car keys use other radio protocols, encryption, or rolling codes. Only handle devices you own or are authorized to test.
+</details>
+
+<details><summary>Does the software upload my data?</summary>
+
+No card UID, keys, dumps, card contents, or personal information are uploaded. Anonymous telemetry is optional on first launch and can be disabled at any time.
+</details>
+
+<details><summary>Is it free and open source?</summary>
+
+Yes. NFCX source code is released under the MIT License; third-party components included with releases are distributed under their respective licenses.
+</details>
+
+<details><summary>Can I use it commercially?</summary>
+
+NFCX itself is MIT-licensed and generally permits commercial use. If you redistribute the app or its runtime components, you must also comply with the licenses of included third-party components.
+</details>
+
+<details><summary>Can I sponsor the project?</summary>
+
+Yes. You can [sponsor NFCX on GitHub Sponsors](https://github.com/sponsors/BennyThink).
+</details>
+
 # Screenshots
 
 ## Main window
@@ -85,6 +175,7 @@ Read [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) before redistributing NFCX
 - [Website](https://nfcx.tools)
 - [GitHub repository](https://github.com/BennyThink/NFCX)
 - [Download releases](https://github.com/BennyThink/NFCX/releases)
+- [Sponsor NFCX](https://github.com/sponsors/BennyThink)
 - [Documentation index](docs/README.md)
 
 
