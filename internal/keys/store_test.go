@@ -21,8 +21,10 @@ func TestParseDictionaryNormalizesSpacesCaseAndDuplicates(t *testing.T) {
 func TestMergeVerifiedDoesNotOverwriteConflict(t *testing.T) {
 	store := NewStore()
 	cardID := "01020304/0400/08"
-	original := nfc.Key{1, 2, 3, 4, 5, 6}
-	recovered := nfc.Key{6, 5, 4, 3, 2, 1}
+	// Keep these fixtures outside the built-in dictionary: this test exercises
+	// the conflict path, where the recovered value must not be added at all.
+	original := nfc.Key{0x9A, 0x8B, 0x7C, 0x6D, 0x5E, 0x4F}
+	recovered := nfc.Key{0x1F, 0x2E, 0x3D, 0x4C, 0x5B, 0x6A}
 	record, _, err := store.Add(original, SourceUserInput)
 	if err != nil {
 		t.Fatal(err)

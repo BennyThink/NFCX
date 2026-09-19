@@ -28,18 +28,19 @@ func (d fixedDialogs) SaveFile(string, string, string) (string, error) {
 func TestKeyServicePersistsAndDedicatedKeyDTOShowsFullValue(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config", "keys.json")
 	service := &Service{emitter: noopEmitter{}, keyStore: keys.NewStore(), keyStorePath: path}
-	dtos, err := service.AddKey("010203040506")
+	const customKey = "9A8B7C6D5E4F"
+	dtos, err := service.AddKey(customKey)
 	if err != nil {
 		t.Fatal(err)
 	}
 	payload, _ := json.Marshal(dtos)
-	if !strings.Contains(string(payload), `"value":"010203040506"`) || strings.Contains(string(payload), "••••") {
+	if !strings.Contains(string(payload), `"value":"`+customKey+`"`) || strings.Contains(string(payload), "••••") {
 		t.Fatalf("dedicated key DTO did not show the full key: %s", payload)
 	}
 	card := nfc.CardInfo{UID: []byte{1, 2, 3, 4}, ATQA: [2]byte{0, 4}, SAK: 8}
 	customID := ""
 	for _, dto := range dtos {
-		if dto.Value == "010203040506" {
+		if dto.Value == customKey {
 			customID = dto.ID
 			break
 		}
@@ -48,7 +49,7 @@ func TestKeyServicePersistsAndDedicatedKeyDTOShowsFullValue(t *testing.T) {
 		t.Fatal(err)
 	}
 	sectorPayload, _ := json.Marshal(sectorKeyDTOs(service.keyStore, &card))
-	if !strings.Contains(string(sectorPayload), `"keyA":"010203040506"`) || strings.Contains(string(sectorPayload), "••••") {
+	if !strings.Contains(string(sectorPayload), `"keyA":"`+customKey+`"`) || strings.Contains(string(sectorPayload), "••••") {
 		t.Fatalf("sector key DTO did not show the full key: %s", sectorPayload)
 	}
 	info, err := os.Stat(path)
@@ -64,7 +65,7 @@ func TestKeyServicePersistsAndDedicatedKeyDTOShowsFullValue(t *testing.T) {
 	}
 	found := false
 	for _, entry := range reloaded.Entries() {
-		found = found || entry.Hex() == "010203040506"
+		found = found || entry.Hex() == customKey
 	}
 	if !found {
 		t.Fatal("persisted user key was not reloaded")
@@ -75,7 +76,8 @@ func TestImportReportsInvalidAndDuplicateLinesAndExportIsExplicit(t *testing.T) 
 	directory := t.TempDir()
 	input := filepath.Join(directory, "input.dic")
 	output := filepath.Join(directory, "output.dic")
-	if err := os.WriteFile(input, []byte("010203040506\n01 02 03 04 05 06\ninvalid\n"), 0o600); err != nil {
+	const importedKey = "9A8B7C6D5E4F"
+	if err := os.WriteFile(input, []byte(importedKey+"\n9A 8B 7C 6D 5E 4F\ninvalid\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(output, []byte("old\n"), 0o644); err != nil {
@@ -103,7 +105,7 @@ func TestImportReportsInvalidAndDuplicateLinesAndExportIsExplicit(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(exported), "010203040506\n") || !strings.Contains(string(exported), "FFFFFFFFFFFF\n") {
+	if !strings.Contains(string(exported), importedKey+"\n") || !strings.Contains(string(exported), "FFFFFFFFFFFF\n") {
 		t.Fatalf("exported dictionary omitted custom or built-in keys: %q", exported)
 	}
 	info, err := os.Stat(output)
