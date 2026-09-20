@@ -75,3 +75,15 @@ func TestLocatorRejectsSymlinkEscape(t *testing.T) {
 		t.Fatalf("symlink escape error = %v", err)
 	}
 }
+
+func TestLocatorRuntimeRootUsesFirstExistingDirectory(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "missing")
+	root := t.TempDir()
+	got, err := runtimebundle.NewLocator(missing, root).RuntimeRoot()
+	if err != nil {
+		t.Fatalf("RuntimeRoot: %v", err)
+	}
+	if got != root {
+		t.Fatalf("RuntimeRoot = %q, want %q", got, root)
+	}
+}

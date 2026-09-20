@@ -20,6 +20,7 @@ import (
 	"github.com/BennyThink/NFCX/internal/nfc/libnfc"
 	runtimebundle "github.com/BennyThink/NFCX/internal/runtime"
 	"github.com/BennyThink/NFCX/internal/telemetry"
+	"github.com/BennyThink/NFCX/internal/terminal"
 	"github.com/BennyThink/NFCX/internal/workbench"
 	"github.com/BennyThink/NFCX/internal/workflow"
 )
@@ -59,6 +60,41 @@ func (s *Service) Diagnostics() diagnostic.Report {
 		currentDevice = s.deviceManager.Snapshot().Device.ConnString
 	}
 	return diagnostic.Run(ctx, s.mfocLocator, currentDevice)
+}
+
+// OpenCommandTerminal releases the selected reader, then opens a user-driven
+// shell whose PATH includes NFCX's private runtime. NFCX cannot observe when a
+// user-run command ends, so the reader intentionally remains disconnected
+// until the user reconnects it in the GUI.
+func (s *Service) OpenCommandTerminal() error {
+	s.mu.Lock()
+	busy := len(s.operations) != 0
+	s.mu.Unlock()
+	if busy {
+		return errors.New("wait for the active NFCX task to finish before opening a command terminal")
+	}
+	runtimeDir, err := s.mfocLocator.RuntimeRoot()
+	if err != nil {
+		return fmt.Errorf("locate NFCX command-line runtime: %w", err)
+	}
+	snapshot := s.deviceManager.Snapshot()
+	connString := snapshot.Device.ConnString
+	if connString != "" {
+		if err := s.deviceManager.Disconnect(); err != nil {
+			return fmt.Errorf("release reader for command terminal: %w", err)
+		}
+	}
+	if err := terminal.Open(terminal.Environment{RuntimeDir: runtimeDir, Device: connString}); err != nil {
+		if connString != "" {
+			ctx, cancel := context.WithTimeout(context.Background(), s.deviceTimeout)
+			defer cancel()
+			if reconnectErr := s.deviceManager.Connect(ctx, connString); reconnectErr != nil {
+				return fmt.Errorf("open command terminal: %w; reconnect reader: %v", err, reconnectErr)
+			}
+		}
+		return fmt.Errorf("open command terminal: %w", err)
+	}
+	return nil
 }
 
 type noopEmitter struct{}

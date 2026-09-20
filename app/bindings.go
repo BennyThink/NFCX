@@ -15,6 +15,8 @@ func (b *Bindings) GetDashboard() DashboardDTO {
 
 func (b *Bindings) GetDiagnostics() diagnostic.Report { return b.service.Diagnostics() }
 
+func (b *Bindings) OpenCommandTerminal() error { return b.service.OpenCommandTerminal() }
+
 func (b *Bindings) GetTelemetrySettings() TelemetrySettingsDTO { return b.service.TelemetrySettings() }
 func (b *Bindings) SetTelemetryEnabled(enabled bool) (TelemetrySettingsDTO, error) {
 	return b.service.SetTelemetryEnabled(enabled)

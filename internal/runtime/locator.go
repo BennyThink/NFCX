@@ -92,6 +92,28 @@ func (l *Locator) Roots() []string {
 	return append([]string(nil), l.roots...)
 }
 
+// RuntimeRoot returns the first existing directory in the controlled runtime
+// search order. It is intended for a child process environment, not as an
+// overrideable executable search path.
+func (l *Locator) RuntimeRoot() (string, error) {
+	if l == nil {
+		return "", fmt.Errorf("%w: locator is nil", ErrExecutableNotFound)
+	}
+	for _, root := range l.roots {
+		info, err := os.Stat(root)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return "", fmt.Errorf("inspect runtime root: %w", err)
+		}
+		if info.IsDir() {
+			return root, nil
+		}
+	}
+	return "", fmt.Errorf("%w: runtime directory", ErrExecutableNotFound)
+}
+
 // Resolve returns an absolute, verified path inside one configured runtime
 // root. A missing file is distinct from a file that exists but is unsafe.
 func (l *Locator) Resolve(executable Executable) (string, error) {
