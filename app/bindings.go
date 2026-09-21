@@ -1,11 +1,12 @@
 package app
 
 import "github.com/BennyThink/NFCX/internal/diagnostic"
-import "github.com/BennyThink/NFCX/internal/telemetry"
+import "github.com/BennyThink/NFCX/internal/update"
 
 // Bindings is the only object exposed to the Wails frontend.
 type Bindings struct {
 	service *Service
+	quit    func()
 }
 
 // GetDashboard returns the initial mock dashboard state.
@@ -22,8 +23,22 @@ func (b *Bindings) SetTelemetryEnabled(enabled bool) (TelemetrySettingsDTO, erro
 	return b.service.SetTelemetryEnabled(enabled)
 }
 func (b *Bindings) TrackTelemetry(event string) { b.service.TrackTelemetry(event) }
-func (b *Bindings) CheckForUpdates() (telemetry.UpdateResult, error) {
+func (b *Bindings) CheckForUpdates() (update.Snapshot, error) {
 	return b.service.CheckForUpdates()
+}
+func (b *Bindings) GetUpdateStatus() update.Snapshot         { return b.service.UpdateStatus() }
+func (b *Bindings) DownloadUpdate() (update.Snapshot, error) { return b.service.DownloadUpdate() }
+func (b *Bindings) SetAutomaticUpdateDownload(enabled bool) (update.Snapshot, error) {
+	return b.service.SetAutomaticUpdateDownload(enabled)
+}
+func (b *Bindings) RestartAndApplyUpdate() error {
+	if err := b.service.RestartAndApplyUpdate(); err != nil {
+		return err
+	}
+	if b.quit != nil {
+		b.quit()
+	}
+	return nil
 }
 
 func (b *Bindings) RefreshDevices() ([]DeviceDTO, error) {

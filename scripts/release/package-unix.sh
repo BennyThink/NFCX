@@ -40,6 +40,7 @@ EOF
     APPDIR="$REPO_ROOT/build/bin/NFCX.AppDir"
     TOOL_CACHE="$REPO_ROOT/build/toolchain/appimage"
     TOOL="$TOOL_CACHE/appimagetool-x86_64.AppImage"
+	go build -o "$APP_ROOT/NFCX Updater" ./cmd/nfcx-updater
     RUNTIME="$TOOL_CACHE/runtime-x86_64"
     rm -rf "$APPDIR"
     mkdir -p "$APPDIR/usr/bin" "$TOOL_CACHE"

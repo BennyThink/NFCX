@@ -65,6 +65,8 @@ func configureLibNFCDiscovery() {
 // Startup attaches the Wails context used only for emitting GUI events.
 func (a *Application) Startup(ctx context.Context) {
 	a.emitter.setContext(ctx)
+	a.bindings.quit = func() { runtime.Quit(ctx) }
+	a.service.CheckUpdatesInBackground()
 }
 
 // Shutdown stops background work during application teardown.

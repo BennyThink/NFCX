@@ -14,7 +14,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"sync"
 	"time"
 
@@ -169,40 +168,4 @@ func coarseOS() string {
 	default:
 		return "other"
 	}
-}
-
-type UpdateResult struct {
-	CurrentVersion  string `json:"currentVersion"`
-	LatestVersion   string `json:"latestVersion"`
-	UpdateAvailable bool   `json:"updateAvailable"`
-	URL             string `json:"url"`
-}
-
-func CheckForUpdates(ctx context.Context) (UpdateResult, error) {
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.github.com/repos/BennyThink/NFCX/releases/latest", nil)
-	if err != nil {
-		return UpdateResult{}, err
-	}
-	request.Header.Set("Accept", "application/vnd.github+json")
-	response, err := (&http.Client{Timeout: 5 * time.Second}).Do(request)
-	if err != nil {
-		return UpdateResult{}, err
-	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		return UpdateResult{}, fmt.Errorf("GitHub releases status %d", response.StatusCode)
-	}
-	var release struct {
-		TagName string `json:"tag_name"`
-		HTMLURL string `json:"html_url"`
-	}
-	if err := json.NewDecoder(io.LimitReader(response.Body, 64<<10)).Decode(&release); err != nil {
-		return UpdateResult{}, err
-	}
-	latest := strings.TrimPrefix(strings.TrimSpace(release.TagName), "v")
-	if latest == "" {
-		return UpdateResult{}, errors.New("GitHub release has no tag")
-	}
-	current := strings.TrimPrefix(buildinfo.Current().Version, "v")
-	return UpdateResult{CurrentVersion: current, LatestVersion: latest, UpdateAvailable: current != latest, URL: release.HTMLURL}, nil
 }

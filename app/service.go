@@ -21,6 +21,7 @@ import (
 	runtimebundle "github.com/BennyThink/NFCX/internal/runtime"
 	"github.com/BennyThink/NFCX/internal/telemetry"
 	"github.com/BennyThink/NFCX/internal/terminal"
+	"github.com/BennyThink/NFCX/internal/update"
 	"github.com/BennyThink/NFCX/internal/workbench"
 	"github.com/BennyThink/NFCX/internal/workflow"
 )
@@ -31,6 +32,7 @@ const (
 	DeviceEventName     = "nfcx:device-state"
 	CardEventName       = "nfcx:card-state"
 	TaskEventName       = "nfcx:task"
+	UpdateEventName     = "nfcx:update"
 	WorkbenchEventName  = "nfcx:workbench"
 	KeyEventName        = "nfcx:sector-keys"
 	KeyCatalogEventName = "nfcx:key-catalog"
@@ -146,6 +148,7 @@ type Service struct {
 	dialogs          fileDialogs
 	telemetry        *telemetry.Client
 	telemetryStore   *telemetry.Store
+	updater          *update.Manager
 }
 
 // NewService wires the application service to the current libnfc backend.
@@ -184,16 +187,21 @@ func newService(emitter EventEmitter, config mockTaskConfig) *Service {
 	keyStorePath := ""
 	uidBackupRoot := ""
 	telemetryPath := ""
+	updatePath := ""
+	updateStaging := ""
 	if configRoot != "" {
 		keyStorePath = filepath.Join(configRoot, "NFCX", "keys.json")
 		uidBackupRoot = filepath.Join(configRoot, "NFCX", "uid-backups")
 		telemetryPath = filepath.Join(configRoot, "NFCX", "telemetry.json")
+		updatePath = filepath.Join(configRoot, "NFCX", "updates.json")
+		updateStaging = filepath.Join(configRoot, "NFCX", "updates")
 		_ = keyStore.Load(keyStorePath)
 	}
 	telemetryStore := telemetry.NewStore(telemetryPath)
 	if telemetryPath != "" {
 		_ = telemetryStore.Load()
 	}
+	updater, _ := update.NewManager(update.Config{ConfigPath: updatePath, StagingDir: updateStaging, AllowedHosts: []string{"github.com", "objects.githubusercontent.com"}})
 	return &Service{
 		emitter:          emitter,
 		tasks:            make(map[string]*mockTask),
@@ -219,6 +227,7 @@ func newService(emitter EventEmitter, config mockTaskConfig) *Service {
 		dialogs:          noFileDialogs{},
 		telemetry:        telemetry.NewClient(telemetryStore),
 		telemetryStore:   telemetryStore,
+		updater:          updater,
 	}
 }
 

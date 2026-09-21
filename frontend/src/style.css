@@ -59,6 +59,8 @@ button:disabled { cursor: not-allowed; opacity: .36; }
 .brand-mark { width: 38px; height: 38px; object-fit: contain; filter: drop-shadow(0 3px 7px rgba(34, 211, 238, .22)); }
 .brand h1, h2, h3 { margin: 0; } .brand h1 { font-size: 18px; letter-spacing: .2em; }
 .top-actions { gap: 10px; -webkit-app-region: no-drag; }
+.update-chip { max-width: 146px; overflow: hidden; border: 1px solid rgba(85, 230, 191, .32); border-radius: 99px; padding: 5px 9px; color: var(--accent); background: var(--accent-dim); font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.update-chip:hover { border-color: var(--accent); }
 .language-button { min-width: 96px; }
 .dirty-badge, .live-badge, .counter, .task-state, .kind-label { border-radius: 99px; }
 .workspace { height: calc(100vh - 72px); display: grid; grid-template-columns: 292px minmax(0, 1fr); gap: 14px; padding: 14px; }
@@ -141,6 +143,10 @@ table { width: 100%; border-collapse: collapse; } th { position: sticky; top: 0;
 .access-table th { position: static; } .access-table td, .access-table th { padding: 6px 8px; font-size: 8px; }
 .key-add-row { gap: 7px; margin-top: 16px; } .key-add-row input { flex: 1; } .key-add-row button { flex: none; }
 .privacy-note { color: var(--muted); font-size: 9px; }
+.update-card { display: grid; gap: 5px; margin: 15px 0; padding: 11px; border: 1px solid var(--line-soft); border-radius: 8px; background: var(--row-bg); }
+.update-card > strong { color: var(--text-strong); font-size: 10px; }
+.update-card .option-row { margin-top: 4px; }
+.update-actions { display: flex; justify-content: flex-end; gap: 7px; margin-top: 5px; }
 .import-report { display: flex; flex-direction: column; gap: 3px; margin: 8px 0; padding: 8px 10px; border: 1px solid rgba(247, 189, 103, .2); border-radius: 7px; color: var(--warning-text); background: rgba(247, 189, 103, .06); font-size: 8px; }
 .import-report[data-tone="error"] { color: var(--danger); border-color: rgba(255, 116, 128, .25); background: rgba(255, 116, 128, .07); }
 .recovery-result-summary { display: grid; gap: 7px; margin-top: 14px; padding: 12px; border: 1px solid var(--line-soft); border-radius: 8px; background: var(--row-bg); } .recovery-result-summary strong { color: var(--text-strong); font-size: 13px; } .recovery-result-summary span { color: var(--text-secondary); font-size: 9px; } .recovery-result-summary p { margin: 3px 0 0; color: var(--danger); font-size: 9px; line-height: 1.5; } .recovery-result-summary.complete { border-color: rgba(85, 230, 191, .3); } .recovery-result-summary.partial { border-color: rgba(247, 189, 103, .3); }

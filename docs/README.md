@@ -28,6 +28,7 @@
 | 10B | [MFOC-Hardnested 集成](specs/10b-hardnested-integration.md) | Nested 未完整恢复时可执行 Hardnested |
 | 11 | [特殊 UID 卡操作](specs/11-special-uid-cards.md) | CUID/Gen1A 等操作被明确区分并保护 |
 | 12 | [跨平台构建与发布](specs/12-cross-platform-release.md) | Windows、macOS、Linux 可安装产物 |
+| 16 | [低打扰的应用内更新](specs/16-in-app-update.md) | 静默检查、受控下载与安全重启更新 |
 
 ## 每阶段通用完成定义
 
