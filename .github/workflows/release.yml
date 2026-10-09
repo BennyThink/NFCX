@@ -405,7 +405,23 @@ jobs:
       - name: Create or update GitHub Release
         shell: bash
         run: |
+          shopt -s nullglob
+          assets=(
+            dist/SHA256SUMS
+            dist/*.dmg
+            dist/*.AppImage
+            dist/*.tar.gz
+            dist/*.zip
+          )
+          if [[ "${#assets[@]}" -ne 5 ]]; then
+            printf 'Expected SHA256SUMS plus exactly four release archives; found:\n' >&2
+            printf '  %s\n' "${assets[@]}" >&2
+            exit 1
+          fi
           if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes --title "NFCX ${{ needs.metadata.outputs.version }}"
           fi
-          gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+          # Remove the only loose executable that an older, overly-broad upload
+          # step could have added. Release assets are archive files only.
+          gh release delete-asset "$GITHUB_REF_NAME" 'NFCX Updater.exe' --yes 2>/dev/null || true
+          gh release upload "$GITHUB_REF_NAME" "${assets[@]}" --clobber
