@@ -343,7 +343,6 @@ jobs:
           signing-policy-slug: ${{ env.SIGNPATH_SIGNING_POLICY_SLUG }}
           artifact-configuration-slug: ${{ env.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG }}
           github-artifact-id: ${{ steps.upload-unsigned-signpath-bundle.outputs.artifact-id }}
-          skip-decompress: true
           wait-for-completion: true
           output-artifact-directory: signed
       - name: Stage SignPath-signed files

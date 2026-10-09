@@ -13,6 +13,7 @@
 
 - 原 workflow 仅支持从 `WINDOWS_CERTIFICATE` 和 `WINDOWS_CERTIFICATE_PASSWORD` 导入 PFX。SignPath 托管证书不应导出私钥到 GitHub runner，因此该路径已由 SignPath signing request 取代。
 - runtime manifest 必须在 Authenticode 写入 PE 文件之后生成；若提前生成，签名会改变文件哈希，应用的 `--self-check` 会错误报告完整性失败。
+- SignPath action 的 `skip-decompress` 会将签名后的 ZIP 原样写入输出目录，而 staging 步骤需要 ZIP 内已解压的文件；因此保留默认值 `false`，让 action 在下载后解压输出。
 
 ## 阻塞或未完成
 
