@@ -1,0 +1,151 @@
+name: Publish approved SignPath release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag, for example v1.2.3
+        required: true
+        type: string
+      build_run_id:
+        description: Run ID of the completed "Prepare release for SignPath approval" workflow
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: write
+
+env:
+  GO_VERSION: 1.25.1
+  SIGNPATH_ORGANIZATION_ID: 503a0f30-7186-4c5d-9379-8125b080744c
+  SIGNPATH_PROJECT_SLUG: NFCX
+
+jobs:
+  metadata:
+    runs-on: ubuntu-22.04
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - id: release
+        shell: bash
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z]+)*$ ]] || { echo "invalid release tag: $TAG" >&2; exit 1; }
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+  finalize-windows:
+    needs: metadata
+    runs-on: windows-2025
+    env:
+      VERSION: ${{ needs.metadata.outputs.version }}
+      TAG: ${{ inputs.tag }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.tag }}
+      - uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          path-type: inherit
+          update: false
+          install: findutils
+      - name: Download SignPath request details
+        uses: actions/download-artifact@v4
+        with:
+          name: NFCX-${{ env.VERSION }}-signpath-request
+          run-id: ${{ inputs.build_run_id }}
+          github-token: ${{ github.token }}
+          path: signpath-request
+      - name: Download approved SignPath artifact
+        shell: pwsh
+        env:
+          SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+        run: |
+          $requestLine = Get-Content signpath-request/signpath-request.txt | Where-Object { $_ -like 'signing_request_id=*' }
+          $signingRequestId = $requestLine.Substring('signing_request_id='.Length)
+          if ([string]::IsNullOrWhiteSpace($signingRequestId)) { throw 'Signing request ID is missing from the build artifact' }
+          $headers = @{ Authorization = "Bearer $env:SIGNPATH_API_TOKEN" }
+          $base = "https://app.signpath.io/Api/v1/$env:SIGNPATH_ORGANIZATION_ID/SigningRequests/$signingRequestId"
+          $request = Invoke-RestMethod -Headers $headers -Uri $base
+          if ($request.status -ne 'Completed' -or $request.projectSlug -ne $env:SIGNPATH_PROJECT_SLUG) {
+            throw "Signing request must be completed for project $env:SIGNPATH_PROJECT_SLUG; status=$($request.status), project=$($request.projectSlug)"
+          }
+          Invoke-WebRequest -Headers $headers -Uri "$base/SignedArtifact" -OutFile signed-artifact.zip
+          Expand-Archive signed-artifact.zip -DestinationPath signed -Force
+      - name: Stage signed Windows files
+        shell: pwsh
+        run: |
+          $signedExe = Get-ChildItem signed -Filter NFCX.exe -File -Recurse
+          if ($signedExe.Count -ne 1) { throw "Expected exactly one signed NFCX.exe, found $($signedExe.Count)" }
+          $stage = 'build/bin/NFCX-windows-amd64'
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item (Join-Path $signedExe[0].Directory.FullName '*') $stage -Recurse -Force
+          Get-ChildItem $stage -File | Where-Object Extension -In '.exe','.dll' | ForEach-Object {
+            if ((Get-AuthenticodeSignature $_.FullName).SignatureType -eq 'None') { throw "Unsigned distributed file: $($_.Name)" }
+          }
+      - name: Seal manifest from signed files
+        shell: msys2 {0}
+        run: |
+          commit="$(git rev-parse "$TAG^{commit}")"
+          scripts/release/generate-manifest.sh "$VERSION" "$commit"
+      - name: Verify signed package and create final ZIP
+        shell: pwsh
+        run: |
+          & ".\build\bin\NFCX-windows-amd64\NFCX.exe" --self-check --json
+          scripts/release/package-windows.ps1 -Version $env:VERSION
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NFCX-${{ env.VERSION }}-windows-amd64
+          path: dist/NFCX-${{ env.VERSION }}-windows-amd64.zip
+          if-no-files-found: error
+
+  publish:
+    needs: [metadata, finalize-windows]
+    runs-on: ubuntu-22.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ inputs.tag }}
+      VERSION: ${{ needs.metadata.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.tag }}
+      - uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: NFCX-${{ env.VERSION }}-darwin-arm64
+          run-id: ${{ inputs.build_run_id }}
+          github-token: ${{ github.token }}
+          path: dist
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: NFCX-${{ env.VERSION }}-linux-amd64
+          run-id: ${{ inputs.build_run_id }}
+          github-token: ${{ github.token }}
+          path: dist
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: NFCX-${{ env.VERSION }}-windows-amd64
+          path: dist
+          merge-multiple: true
+      - name: Generate checksums and publish exactly the release archives
+        shell: bash
+        run: |
+          go run ./cmd/nfcx-release checksums -output dist/SHA256SUMS dist/*.dmg dist/*.AppImage dist/*.tar.gz dist/*.zip
+          assets=(dist/SHA256SUMS dist/*.dmg dist/*.AppImage dist/*.tar.gz dist/*.zip)
+          [[ "${#assets[@]}" -eq 5 ]] || { printf 'unexpected assets:\n%s\n' "${assets[*]}" >&2; exit 1; }
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --verify-tag --generate-notes --title "NFCX $VERSION"
+          fi
+          gh release delete-asset "$TAG" 'NFCX Updater.exe' --yes 2>/dev/null || true
+          gh release upload "$TAG" "${assets[@]}" --clobber

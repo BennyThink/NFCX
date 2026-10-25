@@ -1,4 +1,4 @@
-name: Cross-platform release
+name: Prepare release for SignPath approval
 
 on:
   workflow_dispatch:
@@ -335,6 +335,7 @@ jobs:
           archive: false
           retention-days: 1
       - name: Submit Windows binaries to SignPath
+        id: submit-windows-binaries-to-signpath
         uses: signpath/github-action-submit-signing-request@v3
         with:
           api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
@@ -343,85 +344,19 @@ jobs:
           signing-policy-slug: ${{ env.SIGNPATH_SIGNING_POLICY_SLUG }}
           artifact-configuration-slug: ${{ env.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG }}
           github-artifact-id: ${{ steps.upload-unsigned-signpath-bundle.outputs.artifact-id }}
-          wait-for-completion: true
-          output-artifact-directory: signed
-      - name: Stage SignPath-signed files
+          wait-for-completion: false
+      - name: Record SignPath approval details
         shell: pwsh
         run: |
-          $signedExe = Get-ChildItem signed -Filter NFCX.exe -File -Recurse
-          if ($signedExe.Count -ne 1) {
-            throw "Expected exactly one signed NFCX.exe, found $($signedExe.Count)"
-          }
-          $signedRoot = $signedExe[0].Directory.FullName
-          Copy-Item (Join-Path $signedRoot '*') build/bin/NFCX-windows-amd64 -Recurse -Force
-      - name: Confirm all distributed PE files have embedded signatures
-        shell: pwsh
-        run: |
-          Get-ChildItem build/bin/NFCX-windows-amd64 -File | Where-Object Extension -In '.exe','.dll' | ForEach-Object {
-            $signature = Get-AuthenticodeSignature $_.FullName
-            if ($signature.SignatureType -eq 'None') {
-              throw "SignPath did not embed a signature in $($_.Name)"
-            }
-          }
-      - name: Seal runtime manifest
-        shell: msys2 {0}
-        run: scripts/release/generate-manifest.sh "$VERSION" "$COMMIT"
-      - name: Verify packaged self-check
-        shell: pwsh
-        run: '& ".\build\bin\NFCX-windows-amd64\NFCX.exe" --self-check --json'
-      - name: Reject developer paths
-        shell: pwsh
-        run: go run ./cmd/nfcx-release scan-paths -root build/bin/NFCX-windows-amd64 -needle $env:GITHUB_WORKSPACE
-      - name: Create portable ZIP
-        shell: pwsh
-        run: |
-          scripts/release/package-windows.ps1 -Version $env:VERSION
-          Remove-Item "dist/NFCX-$env:VERSION-windows-amd64-unsigned.zip" -Force
+          @"
+          version=$env:VERSION
+          commit=$env:COMMIT
+          signing_request_id=${{ steps.submit-windows-binaries-to-signpath.outputs.signing-request-id }}
+          signing_request_url=${{ steps.submit-windows-binaries-to-signpath.outputs.signing-request-web-url }}
+          "@ | Set-Content signpath-request.txt -NoNewline
+          Get-Content signpath-request.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: NFCX-${{ env.VERSION }}-windows-amd64
-          path: dist/NFCX-${{ env.VERSION }}-windows-amd64.zip
+          name: NFCX-${{ env.VERSION }}-signpath-request
+          path: signpath-request.txt
           if-no-files-found: error
-
-  publish:
-    if: needs.metadata.outputs.tagged == 'true'
-    needs: [metadata, macos-arm64, linux-amd64, windows-amd64]
-    runs-on: ubuntu-22.04
-    env:
-      GH_TOKEN: ${{ github.token }}
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
-        with:
-          go-version: ${{ env.GO_VERSION }}
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: NFCX-${{ needs.metadata.outputs.version }}-*
-          path: dist
-          merge-multiple: true
-      - name: Generate release checksums
-        shell: bash
-        run: go run ./cmd/nfcx-release checksums -output dist/SHA256SUMS dist/*.dmg dist/*.AppImage dist/*.tar.gz dist/*.zip
-      - name: Create or update GitHub Release
-        shell: bash
-        run: |
-          shopt -s nullglob
-          assets=(
-            dist/SHA256SUMS
-            dist/*.dmg
-            dist/*.AppImage
-            dist/*.tar.gz
-            dist/*.zip
-          )
-          if [[ "${#assets[@]}" -ne 5 ]]; then
-            printf 'Expected SHA256SUMS plus exactly four release archives; found:\n' >&2
-            printf '  %s\n' "${assets[@]}" >&2
-            exit 1
-          fi
-          if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes --title "NFCX ${{ needs.metadata.outputs.version }}"
-          fi
-          # Remove the only loose executable that an older, overly-broad upload
-          # step could have added. Release assets are archive files only.
-          gh release delete-asset "$GITHUB_REF_NAME" 'NFCX Updater.exe' --yes 2>/dev/null || true
-          gh release upload "$GITHUB_REF_NAME" "${assets[@]}" --clobber

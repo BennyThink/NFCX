@@ -12,7 +12,10 @@ $Destination = Join-Path $Dist "NFCX-$Version-windows-amd64$Suffix.zip"
 if (-not (Test-Path (Join-Path $Source "NFCX.exe"))) {
     throw "Packaged Windows application is missing: $Source"
 }
-go build -o (Join-Path $Source "NFCX Updater.exe") ./cmd/nfcx-updater
+$Updater = Join-Path $Source "NFCX Updater.exe"
+if (-not (Test-Path $Updater)) {
+    go build -o $Updater ./cmd/nfcx-updater
+}
 New-Item -ItemType Directory -Force -Path $Dist | Out-Null
 if (Test-Path $Destination) { Remove-Item -Force $Destination }
 Compress-Archive -Path (Join-Path $Source "*") -DestinationPath $Destination -CompressionLevel Optimal
