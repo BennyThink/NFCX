@@ -219,8 +219,11 @@ type TaskEventDetailDTO struct {
 }
 
 type KeyRecoveryStartRequestDTO struct {
-	Authorized   bool `json:"authorized"`
-	DiscardDirty bool `json:"discardDirty"`
+	Authorized   bool   `json:"authorized"`
+	DiscardDirty bool   `json:"discardDirty"`
+	// Mode selects the mfoc performance mode: "balanced" (default),
+	// "high_performance" or "x64".
+	Mode string `json:"mode,omitempty"`
 }
 
 type KeyRecoveryStepDTO struct {
@@ -248,6 +251,9 @@ type KeyRecoveryResultDTO struct {
 
 type MFoCStartRequestDTO struct {
 	Authorized bool `json:"authorized"`
+	// Mode selects the mfoc performance mode: "balanced" (default),
+	// "high_performance" or "x64".
+	Mode string `json:"mode,omitempty"`
 }
 
 type MFoCResultDTO struct {

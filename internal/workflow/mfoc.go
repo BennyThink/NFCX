@@ -28,6 +28,9 @@ type MFoCRequest struct {
 	Authorized      bool
 	Timeout         time.Duration
 	TemporaryPolicy attack.TemporaryPolicy
+	// Mode selects the mfoc performance mode (balanced, high_performance or
+	// x64). The zero value keeps upstream behaviour.
+	Mode attack.MFoCMode
 }
 
 type MFoCClaimStatus string
@@ -94,7 +97,7 @@ func (s *MFoCService) run(ctx context.Context, request MFoCRequest, emit func(at
 	if len(known) == 0 {
 		return result, ErrMFoCSeedRequired
 	}
-	engine := s.engineFactory(attack.MFoCInvocation{Card: request.Card, KnownKeys: known})
+	engine := s.engineFactory(attack.MFoCInvocation{Card: request.Card, KnownKeys: known, Mode: request.Mode})
 	coordinator := attack.NewCoordinator(s.released, engine)
 	expected := request.Card.Clone()
 	external, runErr := coordinator.Run(ctx, attack.AttackRequest{

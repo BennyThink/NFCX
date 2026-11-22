@@ -21,6 +21,10 @@ func (s *Service) StartKeyRecovery(input KeyRecoveryStartRequestDTO) (TaskDTO, e
 	if s.bench.Snapshot().Dirty && !input.DiscardDirty {
 		return TaskDTO{}, ErrDirtyWorkbench
 	}
+	mode, err := mfoCModeFromDTO(input.Mode)
+	if err != nil {
+		return TaskDTO{}, err
+	}
 	snapshot := s.deviceManager.Snapshot()
 	if snapshot.Status != device.StatusReady && snapshot.Status != device.StatusPolling {
 		if snapshot.Status == device.StatusBusy || snapshot.Status == device.StatusConnecting || snapshot.Status == device.StatusRecovering {
@@ -40,7 +44,7 @@ func (s *Service) StartKeyRecovery(input KeyRecoveryStartRequestDTO) (TaskDTO, e
 		result, runErr := s.keyRecovery.Run(ctx, workflow.KeyRecoveryRequest{
 			TaskID: taskID, Card: card, Device: deviceInfo, Authorized: true,
 			DarksideTimeout: time.Hour, NestedTimeout: 30 * time.Minute, HardnestedTimeout: 6 * time.Hour,
-			TemporaryPolicy: attack.CleanupAlways,
+			TemporaryPolicy: attack.CleanupAlways, Mode: mode,
 		}, func(event workflow.KeyRecoveryEvent) {
 			s.emitOperation(keyRecoveryEventDTO(taskID, event))
 		})

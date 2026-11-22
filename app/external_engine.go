@@ -76,9 +76,13 @@ func (s *Service) StartMFoC(input MFoCStartRequestDTO) (TaskDTO, error) {
 	if !input.Authorized {
 		return TaskDTO{}, workflow.ErrMFoCAuthorization
 	}
+	mode, err := mfoCModeFromDTO(input.Mode)
+	if err != nil {
+		return TaskDTO{}, err
+	}
 	availabilityCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	if err := attack.NewMFoCEngine(s.mfocLocator, attack.MFoCInvocation{}).Available(availabilityCtx); err != nil {
+	if err := attack.NewMFoCEngine(s.mfocLocator, attack.MFoCInvocation{Mode: mode}).Available(availabilityCtx); err != nil {
 		return TaskDTO{}, err
 	}
 	snapshot := s.deviceManager.Snapshot()
@@ -102,7 +106,7 @@ func (s *Service) StartMFoC(input MFoCStartRequestDTO) (TaskDTO, error) {
 	return s.startOperation("mfoc", "MFOC Nested 密钥恢复", func(ctx context.Context, taskID string) error {
 		result, runErr := s.mfocAttack.Run(ctx, workflow.MFoCRequest{
 			TaskID: taskID, Card: card, Device: deviceInfo, Authorized: true,
-			Timeout: 30 * time.Minute, TemporaryPolicy: attack.CleanupAlways,
+			Timeout: 30 * time.Minute, TemporaryPolicy: attack.CleanupAlways, Mode: mode,
 		}, func(event attack.AttackEvent) {
 			s.emitOperation(attackEventDTO(taskID, "mfoc", event))
 		})

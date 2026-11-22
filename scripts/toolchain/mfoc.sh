@@ -27,7 +27,11 @@ RUNTIME_DIR="${NFCX_RUNTIME_DIR:-$REPO_ROOT/runtime/$PLATFORM}"
 CACHE_DIR="${NFCX_TOOLCHAIN_CACHE_DIR:-$REPO_ROOT/.cache/toolchain}"
 BUILD_INFO_DIR="${NFCX_MFOC_BUILD_INFO_DIR:-$REPO_ROOT/build/toolchain/$PLATFORM/mfoc-build-info}"
 ARCHIVE="$CACHE_DIR/mfoc-$MFOC_VERSION.tar.gz"
-PATCH_FILE="$REPO_ROOT/third_party/mfoc/patches/$MFOC_PATCH_SERIES"
+PATCH_DIR="$REPO_ROOT/third_party/mfoc/patches"
+PATCHES=()
+for patch_name in $MFOC_PATCH_SERIES; do
+  PATCHES+=("$PATCH_DIR/$patch_name")
+done
 TEMP_BASE="${TMPDIR:-/tmp}"
 TEMP_BASE="${TEMP_BASE%/}"
 CLEANUP_DIR=""
@@ -84,7 +88,9 @@ check() {
     fi
   done
   [[ -f "$SDK_DIR/lib/pkgconfig/libnfc.pc" ]] || { echo "  missing libnfc SDK: $SDK_DIR"; missing=1; }
-  [[ -f "$PATCH_FILE" ]] || { echo "  missing MinGW compatibility patch: $PATCH_FILE"; missing=1; }
+  for patch_file in "${PATCHES[@]}"; do
+    [[ -f "$patch_file" ]] || { echo "  missing mfoc patch: $patch_file"; missing=1; }
+  done
   [[ -x "$RUNTIME_DIR/mfoc$EXE_SUFFIX" ]] || echo "  mfoc runtime not built"
   return "$missing"
 }
@@ -103,10 +109,14 @@ build() {
   [[ -f "$source/configure.ac" ]] || { echo "mfoc toolchain: unexpected source archive layout" >&2; return 1; }
   mkdir -p "$BUILD_INFO_DIR" "$RUNTIME_DIR/LICENSES" "$RUNTIME_DIR/patches"
   cp "$LOCK_FILE" "$BUILD_INFO_DIR/source.lock"
-  cp "$PATCH_FILE" "$BUILD_INFO_DIR/$MFOC_PATCH_SERIES"
+  for patch_file in "${PATCHES[@]}"; do
+    cp "$patch_file" "$BUILD_INFO_DIR/$(basename "$patch_file")"
+  done
   (
     cd "$source"
-    patch -p1 <"$PATCH_FILE"
+    for patch_file in "${PATCHES[@]}"; do
+      patch -p1 <"$patch_file"
+    done
     autoreconf -is
     env CFLAGS="${CFLAGS:-} -O2 -g0" PKG_CONFIG_PATH="$SDK_DIR/lib/pkgconfig" ./configure --prefix="$work/install" --disable-dependency-tracking
     make -j"${NFCX_BUILD_JOBS:-4}"
@@ -117,7 +127,9 @@ build() {
   install -m 0755 "$binary" "$RUNTIME_DIR/mfoc$EXE_SUFFIX"
   install -m 0644 "$source/COPYING" "$RUNTIME_DIR/LICENSES/mfoc-COPYING.txt"
   install -m 0644 "$LOCK_FILE" "$RUNTIME_DIR/mfoc-source.lock"
-  install -m 0644 "$PATCH_FILE" "$RUNTIME_DIR/patches/$MFOC_PATCH_SERIES"
+  for patch_file in "${PATCHES[@]}"; do
+    install -m 0644 "$patch_file" "$RUNTIME_DIR/patches/$(basename "$patch_file")"
+  done
   sha256_file "$RUNTIME_DIR/mfoc$EXE_SUFFIX" >"$RUNTIME_DIR/mfoc.sha256"
   verify
 }
@@ -127,13 +139,16 @@ verify() {
   [[ -x "$binary" ]] || { echo "mfoc verify: executable is missing" >&2; return 1; }
   [[ -f "$RUNTIME_DIR/LICENSES/mfoc-COPYING.txt" ]] || { echo "mfoc verify: license is missing" >&2; return 1; }
   [[ -f "$RUNTIME_DIR/mfoc-source.lock" ]] || { echo "mfoc verify: source lock is missing" >&2; return 1; }
-  [[ -f "$RUNTIME_DIR/patches/$MFOC_PATCH_SERIES" ]] || { echo "mfoc verify: source patch is missing" >&2; return 1; }
+  for patch_file in "${PATCHES[@]}"; do
+    [[ -f "$RUNTIME_DIR/patches/$(basename "$patch_file")" ]] || { echo "mfoc verify: source patch $(basename "$patch_file") is missing" >&2; return 1; }
+  done
   nfcx_verify_libnfc_dependency "$PLATFORM" "$binary" || { echo "mfoc verify: private libnfc dependency is invalid" >&2; return 1; }
 	nfcx_verify_no_build_path "$binary" "$REPO_ROOT" || { echo "mfoc verify: build path was embedded" >&2; return 1; }
 	help="$(env PATH="$RUNTIME_DIR:$PATH" "$binary" -h 2>&1)"
 	version="$(printf '%s\n' "$help" | sed -n 's/^This is mfoc version \([0-9.]*\)\.$/\1/p')"
 	[[ "$version" == "$MFOC_VERSION" ]] || { echo "mfoc verify: version is $version, expected $MFOC_VERSION" >&2; return 1; }
 	grep -Fq -- '[-k key]...' <<<"$help" || { echo "mfoc verify: repeatable -k key option is missing" >&2; return 1; }
+	grep -Fq -- '[-H] [-X]' <<<"$help" || { echo "mfoc verify: -H/-X performance modes are missing" >&2; return 1; }
 	echo "mfoc verify: $version at $binary"
 }
 

@@ -1,0 +1,921 @@
+From: NFCX maintainers
+Subject: [PATCH] add high-performance (-H) and x64 (-X) Nested modes
+Upstream-Status: Pending
+
+The Nested attack spends nearly all of its wall-clock time in
+lfsr_recovery32(), which is called once for every nonce inside the
+median +- tolerance window. Every one of those calls is independent, so the
+window can be scanned by several threads and the candidate keys merged
+afterwards.
+
+This patch adds two runtime modes to mfoc:
+
+  -H  high-performance mode: the probe window is scanned by one worker per CPU
+      core (NFCX_MFOC_THREADS overrides the worker count). The recovered
+      candidate set is identical to the serial scan; only the ordering of the
+      candidates differs.
+
+  -X  x64 mode: the three-bit nonce parity check is evaluated for all three
+      byte lanes inside one 64-bit expression using __builtin_parity(), which
+      maps to a hardware popcount on 64-bit targets. Rejected at startup on
+      32-bit builds.
+
+Behaviour without -H/-X is unchanged: the serial scanner runs the same
+lfsr_recovery32()/lfsr_rollback_word()/crypto1_get_lfsr() sequence as before.
+
+tests/nfcx-perf-test.c (built by "make check") cross-checks the wide parity
+check against the upstream valid_nonce() formula, verifies that the parallel
+scanner recovers exactly the same candidates as the serial scanner, and reports
+the measured speed-up.
+
+diff --git a/Makefile.am b/Makefile.am
+index 1170343..c0597ae 100644
+--- a/Makefile.am
++++ b/Makefile.am
+@@ -1,4 +1,4 @@
+-SUBDIRS = src
++SUBDIRS = src tests
+ 
+ style:
+ 	find . -name "*.[ch]" -exec perl -pi -e 's/[ \t]+$$//' {} \;
+diff --git a/configure.ac b/configure.ac
+index 28b8141..33d8155 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -3,6 +3,7 @@ AC_INIT([mfoc],[0.10.7],[mifare@nethemba.com])
+ AC_CONFIG_MACRO_DIR([m4])
+ 
+ AC_PROG_CC
++AC_PROG_RANLIB
+ 
+ AC_CONFIG_HEADERS([config.h])
+ 
+@@ -21,6 +22,17 @@ AC_SUBST([PKG_CONFIG_REQUIRES])
+ 
+ AC_C_INLINE
+ 
++# NFCX performance extension: POSIX threads back the multi-core Nested probe
++# scanner on Linux/macOS. Windows builds use Win32 threads and need no extra
++# library, so a failed lookup is not an error.
++AC_SEARCH_LIBS([pthread_create], [pthread], [
++  AS_CASE(["$ac_cv_search_pthread_create"],
++          ["none required"|no], [PTHREAD_LIBS=""],
++          [PTHREAD_LIBS="$ac_cv_search_pthread_create"])
++], [PTHREAD_LIBS=""])
++AC_SUBST([PTHREAD_LIBS])
++AC_SUBST([PTHREAD_CFLAGS], [""])
++
+ # Checks for typedefs, structures, and compiler characteristics.
+ AC_HEADER_STDBOOL
+ AC_TYPE_SIZE_T
+@@ -38,5 +50,6 @@ AC_CHECK_FUNCS([memset])
+ CFLAGS="$CFLAGS -std=c99"
+ 
+ AC_CONFIG_FILES([Makefile
+-                 src/Makefile])
++                 src/Makefile
++                 tests/Makefile])
+ AC_OUTPUT
+diff --git a/src/Makefile.am b/src/Makefile.am
+index 27de9de..ea93ac4 100644
+--- a/src/Makefile.am
++++ b/src/Makefile.am
+@@ -1,10 +1,16 @@
+-AM_CFLAGS  = @libnfc_CFLAGS@
++AM_CFLAGS  = @libnfc_CFLAGS@ @PTHREAD_CFLAGS@
+ 
+ bin_PROGRAMS = mfoc
+ 
+-noinst_HEADERS = crapto1.h mfoc.h mifare.h nfc-utils.h
++noinst_HEADERS = crapto1.h mfoc.h mifare.h nfc-utils.h nfcx-perf.h
+ 
+-mfoc_SOURCES = crapto1.c crypto1.c mfoc.c mifare.c nfc-utils.c
+-mfoc_LDADD   = @libnfc_LIBS@
++noinst_LIBRARIES = libmfocattack.a
++
++libmfocattack_a_CFLAGS = $(AM_CFLAGS)
++
++libmfocattack_a_SOURCES = crapto1.c crypto1.c nfcx-perf.c
++
++mfoc_SOURCES = mfoc.c mifare.c nfc-utils.c
++mfoc_LDADD   = libmfocattack.a @libnfc_LIBS@ @PTHREAD_LIBS@
+ 
+ dist_man_MANS = mfoc.1
+diff --git a/src/mfoc.c b/src/mfoc.c
+index bd380b7..af0f159 100644
+--- a/src/mfoc.c
++++ b/src/mfoc.c
+@@ -46,6 +46,9 @@
+ // Crapto1
+ #include "crapto1.h"
+ 
++// NFCX high-performance / x64 extension
++#include "nfcx-perf.h"
++
+ // Internal
+ #include "config.h"
+ #include "mifare.h"
+@@ -54,6 +57,12 @@
+ 
+ nfc_context *context;
+ 
++/* NFCX runtime modes: -H scans the Nested probe window on all CPU cores and
++   -X switches the 3-bit nonce parity check to the 64-bit wide fast path. */
++static bool nfcx_high_performance = false;
++static bool nfcx_x64_mode = false;
++static int nfcx_threads = 0;
++
+ int main(int argc, char *const argv[])
+ {
+   const nfc_modulation nm = {
+@@ -115,8 +124,16 @@ int main(int argc, char *const argv[])
+   FILE *pfDump = NULL;
+ 
+   // Parse command line arguments
+-  while ((ch = getopt(argc, argv, "hD:s:BP:T:S:O:k:t:")) != -1) {
++  while ((ch = getopt(argc, argv, "hD:s:BP:T:S:O:k:t:HX")) != -1) {
+     switch (ch) {
++      case 'H':
++        // High-performance mode: scan the Nested probe window on all cores
++        nfcx_high_performance = true;
++        break;
++      case 'X':
++        // x64 mode: 64-bit wide nonce parity validation
++        nfcx_x64_mode = true;
++        break;
+       case 'P':
+         // Number of probes
+         if (!(probes = atoi(optarg)) || probes < 1) {
+@@ -167,6 +184,21 @@ int main(int argc, char *const argv[])
+     }
+   }
+ 
++  if (nfcx_high_performance) {
++    const char *env_threads = getenv("NFCX_MFOC_THREADS");
++    nfcx_threads = nfcx_perf_clamp_threads(env_threads ? atoi(env_threads) : 0);
++    fprintf(stdout, "NFCX high-performance mode: scanning Nested probes on %d worker thread(s)\n", nfcx_threads);
++  }
++
++  if (nfcx_x64_mode) {
++#if NFCX_X64_AVAILABLE
++    fprintf(stdout, "NFCX x64 mode: 64-bit wide nonce validation enabled\n");
++#else
++    fprintf(stderr, "NFCX x64 mode requires a 64-bit build; this binary is 32-bit\n");
++    exit(EXIT_FAILURE);
++#endif
++  }
++
+   if (!pfDump) {
+     ERR("parameter -O is mandatory");
+     exit(EXIT_FAILURE);
+@@ -557,7 +589,7 @@ error:
+ 
+ void usage(FILE *stream, int exit_code)
+ {
+-  fprintf(stream, "Usage: mfoc [-h] [-k key]... [-P probnum] [-T tolerance] [-O output]\n");
++  fprintf(stream, "Usage: mfoc [-h] [-k key]... [-P probnum] [-T tolerance] [-O output] [-H] [-X]\n");
+   fprintf(stream, "\n");
+   fprintf(stream, "  h     print this help and exit\n");
+ //	fprintf(stream, "  B     instead of 'A' dump 'B' keys\n");
+@@ -568,6 +600,8 @@ void usage(FILE *stream, int exit_code)
+   fprintf(stream, "  T     nonce tolerance half-range, instead of default of 20\n        (i.e., 40 for the total range, in both directions)\n");
+ //	fprintf(stream, "  s     specify the list of sectors to crack, for example -s 0,1,3,5\n");
+   fprintf(stream, "  O     file in which the card contents will be written (REQUIRED)\n");
++  fprintf(stream, "  H     high-performance mode: scan the Nested probe window on all\n        CPU cores (NFCX_MFOC_THREADS overrides the worker count)\n");
++  fprintf(stream, "  X     x64 mode: 64-bit wide nonce parity validation\n        (requires a 64-bit build, rejected on 32-bit binaries)\n");
+   fprintf(stream, "\n");
+   fprintf(stream, "Example: mfoc -O mycard.mfd\n");
+   fprintf(stream, "Example: mfoc -k ffffeeeedddd -O mycard.mfd\n");
+@@ -672,6 +706,22 @@ int find_exploit_sector(mftag t)
+   exit(EXIT_FAILURE);
+ }
+ 
++// Validate the 3 bits of nonce parity for a probed nonce.
++//
++// -X (x64 mode) evaluates all three byte lanes at once inside one 64-bit
++// expression using __builtin_parity(), which maps to a hardware popcount on
++// 64-bit targets. Both paths must agree exactly; tests/nfcx-perf-test.c
++// cross-checks the wide path against the portable valid_nonce() reference.
++static int mf_probe_parity_valid(uint32_t Nt, uint32_t NtEnc, uint32_t Ks1, uint8_t *parity)
++{
++#if NFCX_X64_AVAILABLE
++  if (nfcx_x64_mode) {
++    return nfcx_valid_nonce_wide(Nt, NtEnc, Ks1, parity);
++  }
++#endif
++  return valid_nonce(Nt, NtEnc, Ks1, parity);
++}
++
+ void mf_anticollision(mftag t, mfreader r)
+ {
+   const nfc_modulation nm = {
+@@ -688,8 +738,6 @@ void mf_anticollision(mftag t, mfreader r)
+ int mf_enhanced_auth(int e_sector, int a_sector, mftag t, mfreader r, denonce *d, pKeys *pk, char mode, bool dumpKeysA)
+ {
+   struct Crypto1State *pcs;
+-  struct Crypto1State *revstate;
+-  struct Crypto1State *revstate_start;
+ 
+   uint64_t lfsr;
+ 
+@@ -896,39 +944,64 @@ int mf_enhanced_auth(int e_sector, int a_sector, mftag t, mfreader r, denonce *d
+     // Iterate over Nt-x, Nt+x
+     // fprintf(stdout, "Iterate from %d to %d\n", d->median-TOLERANCE, d->median+TOLERANCE);
+     NtProbe = prng_successor(Nt, d->median - d->tolerance);
+-    for (m = d->median - d->tolerance; m <= d->median + d->tolerance; m += 2) {
+-
+-      // Try to recover the keystream1
+-      Ks1 = NtEnc ^ NtProbe;
+-
+-      // Skip this nonce after invalid 3b parity check
+-      revstate_start = NULL;
+-      if (valid_nonce(NtProbe, NtEnc, Ks1, d->parity)) {
+-        // And finally recover the first 32 bits of the key
+-        revstate = lfsr_recovery32(Ks1, NtProbe ^ t.authuid);
+-        if (revstate_start == NULL) {
+-          revstate_start = revstate;
+-        }
+-        while ((revstate->odd != 0x0) || (revstate->even != 0x0)) {
+-          lfsr_rollback_word(revstate, NtProbe ^ t.authuid, 0);
+-          crypto1_get_lfsr(revstate, &lfsr);
+-          // Allocate a new space for keys
+-          if (((kcount % MEM_CHUNK) == 0) || (kcount >= pk->size)) {
+-            pk->size += MEM_CHUNK;
+-            // fprintf(stdout, "New chunk by %d, sizeof %lu\n", kcount, pk->size * sizeof(uint64_t));
+-            pk->possibleKeys = (uint64_t *) realloc((void *)pk->possibleKeys, pk->size * sizeof(uint64_t));
+-            if (pk->possibleKeys == NULL) {
+-              ERR("Memory allocation error for pk->possibleKeys");
++    {
++      nfcx_probe_job *jobs = NULL;
++      size_t job_count = 0, job_cap = 0;
++      uint64_t *recovered = NULL;
++      size_t recovered_count = 0, index;
++
++      for (m = d->median - d->tolerance; m <= d->median + d->tolerance; m += 2) {
++        // Try to recover the keystream1
++        Ks1 = NtEnc ^ NtProbe;
++
++        // Skip this nonce after invalid 3b parity check
++        if (mf_probe_parity_valid(NtProbe, NtEnc, Ks1, d->parity)) {
++          if (job_count == job_cap) {
++            size_t grown = job_cap ? job_cap * 2 : 64;
++            nfcx_probe_job *next = (nfcx_probe_job *) realloc(jobs, grown * sizeof(*next));
++            if (next == NULL) {
++              ERR("Memory allocation error for the Nested probe list");
+               exit(EXIT_FAILURE);
+             }
++            jobs = next;
++            job_cap = grown;
++          }
++          jobs[job_count].ks1 = Ks1;
++          jobs[job_count].in = NtProbe ^ t.authuid;
++          job_count++;
++        }
++        NtProbe = prng_successor(NtProbe, 2);
++      }
++
++      // Recover candidates for every surviving probe. -H fans the probes out
++      // over all CPU cores; without it the very same scanner runs serially.
++      if (nfcx_high_performance) {
++        if (nfcx_scan_probes(jobs, job_count, nfcx_threads, &recovered, &recovered_count) != 0) {
++          ERR("Memory allocation error while scanning Nested probes");
++          exit(EXIT_FAILURE);
++        }
++      } else if (nfcx_scan_probes_serial(jobs, job_count, &recovered, &recovered_count) != 0) {
++        ERR("Memory allocation error while scanning Nested probes");
++        exit(EXIT_FAILURE);
++      }
++      free(jobs);
++
++      for (index = 0; index < recovered_count; index++) {
++        lfsr = recovered[index];
++        // Allocate a new space for keys
++        if (((kcount % MEM_CHUNK) == 0) || (kcount >= pk->size)) {
++          pk->size += MEM_CHUNK;
++          // fprintf(stdout, "New chunk by %d, sizeof %lu\n", kcount, pk->size * sizeof(uint64_t));
++          pk->possibleKeys = (uint64_t *) realloc((void *)pk->possibleKeys, pk->size * sizeof(uint64_t));
++          if (pk->possibleKeys == NULL) {
++            ERR("Memory allocation error for pk->possibleKeys");
++            exit(EXIT_FAILURE);
+           }
+-          pk->possibleKeys[kcount] = lfsr;
+-          kcount++;
+-          revstate++;
+         }
+-        free(revstate_start);
++        pk->possibleKeys[kcount] = lfsr;
++        kcount++;
+       }
+-      NtProbe = prng_successor(NtProbe, 2);
++      free(recovered);
+     }
+     // Truncate
+     if (kcount != 0) {
+diff --git a/src/nfcx-perf.c b/src/nfcx-perf.c
+new file mode 100644
+index 0000000..4c1e1cf
+--- /dev/null
++++ b/src/nfcx-perf.c
+@@ -0,0 +1,312 @@
++/*  nfcx-perf.c
++
++    NFCX extension for MFOC: multi-core Nested probe scanning.
++
++    See nfcx-perf.h for the rationale. Each worker owns its candidate list and
++    runs unmodified lfsr_recovery32()/lfsr_rollback_word()/crypto1_get_lfsr()
++    on a strided subset of the probes, so the attack result is byte-identical
++    to the serial scan (only the candidate ordering differs, and only across
++    workers).
++
++    This program is free software; you can redistribute it and/or modify it
++    under the terms of the GNU General Public License as published by the Free
++    Software Foundation; either version 2 of the License, or (at your option)
++    any later version.
++*/
++
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++
++#include "crapto1.h"
++#include "nfcx-perf.h"
++
++#if defined(_WIN32)
++#include <windows.h>
++#else
++#include <pthread.h>
++#include <unistd.h>
++#endif
++
++#define NFCX_PERF_CHUNK 4096
++
++typedef struct {
++  const nfcx_probe_job *jobs;
++  size_t job_count;
++  size_t index;   /* this worker's slot number          */
++  size_t stride;  /* number of workers in the pool      */
++  uint64_t *keys;
++  size_t len;
++  size_t cap;
++  int failed;
++} nfcx_worker;
++
++static int worker_append(nfcx_worker *w, uint64_t key)
++{
++  if (w->len == w->cap) {
++    size_t cap = w->cap ? w->cap * 2 : NFCX_PERF_CHUNK;
++    uint64_t *grown = (uint64_t *)realloc(w->keys, cap * sizeof(*grown));
++    if (grown == NULL) {
++      return -1;
++    }
++    w->keys = grown;
++    w->cap = cap;
++  }
++  w->keys[w->len++] = key;
++  return 0;
++}
++
++/* Recover every candidate key for one probe. Mirrors the serial loop in
++   mf_enhanced_auth() so both paths produce the same candidates. */
++static int worker_recover(nfcx_worker *w, const nfcx_probe_job *job)
++{
++  struct Crypto1State *states = lfsr_recovery32(job->ks1, job->in);
++  struct Crypto1State *state;
++
++  if (states == NULL) {
++    return -1;
++  }
++  for (state = states; (state->odd != 0x0) || (state->even != 0x0); ++state) {
++    uint64_t lfsr = 0;
++    lfsr_rollback_word(state, job->in, 0);
++    crypto1_get_lfsr(state, &lfsr);
++    if (worker_append(w, lfsr) != 0) {
++      free(states);
++      return -1;
++    }
++  }
++  free(states);
++  return 0;
++}
++
++static void worker_execute(nfcx_worker *w)
++{
++  size_t j;
++
++  for (j = w->index; j < w->job_count; j += w->stride) {
++    if (worker_recover(w, &w->jobs[j]) != 0) {
++      w->failed = 1;
++      return;
++    }
++  }
++}
++
++#if defined(_WIN32)
++static DWORD WINAPI worker_entry(LPVOID arg)
++{
++  worker_execute((nfcx_worker *)arg);
++  return 0;
++}
++#else
++static void *worker_entry(void *arg)
++{
++  worker_execute((nfcx_worker *)arg);
++  return NULL;
++}
++#endif
++
++int nfcx_valid_nonce_wide(uint32_t nt, uint32_t nt_enc, uint32_t ks1,
++                          const uint8_t *parity)
++{
++  uint64_t ntl = nt, nel = nt_enc, ksl = ks1;
++  /* Bytes 0/1/2 of the packed lanes carry the (Nt>>24), (Nt>>16) and (Nt>>8)
++     parity bits; each lane holds a single bit after the XOR. */
++  uint64_t lhs = ((uint64_t)__builtin_parity((unsigned)((ntl >> 24) & 0xff)))
++                 | ((uint64_t)__builtin_parity((unsigned)((ntl >> 16) & 0xff)) << 8)
++                 | ((uint64_t)__builtin_parity((unsigned)((ntl >> 8) & 0xff)) << 16);
++  uint64_t rhs = ((uint64_t)parity[0]
++                  ^ (uint64_t)__builtin_parity((unsigned)((nel >> 24) & 0xff))
++                  ^ ((ksl >> 16) & 1))
++                 | (((uint64_t)parity[1]
++                     ^ (uint64_t)__builtin_parity((unsigned)((nel >> 16) & 0xff))
++                     ^ ((ksl >> 8) & 1)) << 8)
++                 | (((uint64_t)parity[2]
++                     ^ (uint64_t)__builtin_parity((unsigned)((nel >> 8) & 0xff))
++                     ^ (ksl & 1)) << 16);
++  return (((lhs ^ rhs) & 0x00010101) == 0) ? 1 : 0;
++}
++
++int nfcx_perf_cpu_count(void)
++{
++#if defined(_WIN32)
++  SYSTEM_INFO info;
++  int cpus;
++  GetSystemInfo(&info);
++  cpus = (int)info.dwNumberOfProcessors;
++#else
++  long cpus = sysconf(_SC_NPROCESSORS_ONLN);
++#endif
++  if (cpus < 1) {
++    cpus = 1;
++  }
++  if (cpus > NFCX_PERF_MAX_THREADS) {
++    cpus = NFCX_PERF_MAX_THREADS;
++  }
++  return (int)cpus;
++}
++
++int nfcx_perf_clamp_threads(int n)
++{
++  int cpus = nfcx_perf_cpu_count();
++
++  if (n <= 0) {
++    return cpus;
++  }
++  if (n > cpus) {
++    n = cpus;
++  }
++  if (n > NFCX_PERF_MAX_THREADS) {
++    n = NFCX_PERF_MAX_THREADS;
++  }
++  return n;
++}
++
++/* Concatenate the per-worker candidate lists, in worker order. */
++static int worker_merge(nfcx_worker *workers, size_t count,
++                        uint64_t **out_keys, size_t *out_len)
++{
++  size_t total = 0, offset = 0, i;
++  uint64_t *merged;
++
++  for (i = 0; i < count; ++i) {
++    if (workers[i].failed) {
++      return -1;
++    }
++    total += workers[i].len;
++  }
++  *out_len = 0;
++  *out_keys = NULL;
++  if (total == 0) {
++    return 0;
++  }
++  merged = (uint64_t *)malloc(total * sizeof(*merged));
++  if (merged == NULL) {
++    return -1;
++  }
++  for (i = 0; i < count; ++i) {
++    if (workers[i].len != 0) {
++      memcpy(merged + offset, workers[i].keys, workers[i].len * sizeof(*merged));
++      offset += workers[i].len;
++    }
++  }
++  *out_keys = merged;
++  *out_len = total;
++  return 0;
++}
++
++static void worker_free(nfcx_worker *workers, size_t count)
++{
++  size_t i;
++
++  for (i = 0; i < count; ++i) {
++    free(workers[i].keys);
++    workers[i].keys = NULL;
++  }
++}
++
++int nfcx_scan_probes_serial(const nfcx_probe_job *jobs, size_t job_count,
++                            uint64_t **out_keys, size_t *out_len)
++{
++  nfcx_worker worker;
++  int status;
++
++  if (out_keys == NULL || out_len == NULL) {
++    return -1;
++  }
++  memset(&worker, 0, sizeof(worker));
++  worker.jobs = jobs;
++  worker.job_count = job_count;
++  worker.index = 0;
++  worker.stride = 1;
++  worker_execute(&worker);
++  status = worker_merge(&worker, 1, out_keys, out_len);
++  worker_free(&worker, 1);
++  return status;
++}
++
++int nfcx_scan_probes(const nfcx_probe_job *jobs, size_t job_count,
++                     int threads, uint64_t **out_keys, size_t *out_len)
++{
++  nfcx_worker *workers;
++  size_t count, i, started = 0;
++  int status = -1;
++#if defined(_WIN32)
++  HANDLE *handles = NULL;
++#else
++  pthread_t *handles = NULL;
++#endif
++
++  if (out_keys == NULL || out_len == NULL) {
++    return -1;
++  }
++  *out_keys = NULL;
++  *out_len = 0;
++  if (job_count == 0) {
++    return 0;
++  }
++  threads = nfcx_perf_clamp_threads(threads);
++  if ((size_t)threads > job_count) {
++    threads = (int)job_count;
++  }
++  if (threads <= 1) {
++    return nfcx_scan_probes_serial(jobs, job_count, out_keys, out_len);
++  }
++
++  count = (size_t)threads;
++  workers = (nfcx_worker *)calloc(count, sizeof(*workers));
++  if (workers == NULL) {
++    return -1;
++  }
++  for (i = 0; i < count; ++i) {
++    workers[i].jobs = jobs;
++    workers[i].job_count = job_count;
++    workers[i].index = i;
++    workers[i].stride = count;
++  }
++
++  /* Spawn count-1 workers and run slot 0 on this thread. */
++#if defined(_WIN32)
++  handles = (HANDLE *)calloc(count - 1, sizeof(*handles));
++#else
++  handles = (pthread_t *)calloc(count - 1, sizeof(*handles));
++#endif
++  if (handles == NULL) {
++    free(workers);
++    return -1;
++  }
++  for (i = 1; i < count; ++i) {
++#if defined(_WIN32)
++    handles[i - 1] = CreateThread(NULL, 0, worker_entry, &workers[i], 0, NULL);
++    if (handles[i - 1] == NULL) {
++      break;
++    }
++#else
++    if (pthread_create(&handles[i - 1], NULL, worker_entry, &workers[i]) != 0) {
++      break;
++    }
++#endif
++    ++started;
++  }
++  /* If the platform refused to spawn every worker, run the unspawned slots
++     here instead of losing their candidates. Each slot keeps its own index and
++     stride, so no probe is scanned twice and none is skipped. */
++  for (i = started + 1; i < count; ++i) {
++    worker_execute(&workers[i]);
++  }
++  worker_execute(&workers[0]);
++
++  for (i = 0; i < started; ++i) {
++#if defined(_WIN32)
++    WaitForSingleObject(handles[i], INFINITE);
++    CloseHandle(handles[i]);
++#else
++    pthread_join(handles[i], NULL);
++#endif
++  }
++
++  status = worker_merge(workers, count, out_keys, out_len);
++  worker_free(workers, count);
++  free(handles);
++  free(workers);
++  return status;
++}
+diff --git a/src/nfcx-perf.h b/src/nfcx-perf.h
+new file mode 100644
+index 0000000..68d33bd
+--- /dev/null
++++ b/src/nfcx-perf.h
+@@ -0,0 +1,70 @@
++/*  nfcx-perf.h
++
++    NFCX extension for MFOC: high-performance (multi-core) Nested probe
++    scanning.
++
++    The Nested attack in MFOC spends almost all of its wall-clock time inside
++    lfsr_recovery32(), which is called once per probed tag nonce inside the
++    median +- tolerance window. Every one of those calls is independent, so
++    the probe window can be scanned by several threads and the recovered
++    candidate keys merged afterwards. This header exposes that scanner so the
++    mfoc front-end (and the NFCX benchmark harness) can use it directly.
++
++    This program is free software; you can redistribute it and/or modify it
++    under the terms of the GNU General Public License as published by the Free
++    Software Foundation; either version 2 of the License, or (at your option)
++    any later version.
++*/
++
++#ifndef NFCX_PERF_H
++#define NFCX_PERF_H
++
++#include <stddef.h>
++#include <stdint.h>
++
++#define NFCX_PERF_MAX_THREADS 64
++
++/* 64-bit targets let the parity check run in one wide expression
++   (__builtin_parity -> hardware popcount). 32-bit builds keep the portable
++   byte-wise path and reject -X at runtime. */
++#if (defined(__x86_64__) || defined(_M_X64) || defined(__aarch64__) || defined(__powerpc64__)) && (defined(__GNUC__) || defined(__clang__))
++#define NFCX_X64_AVAILABLE 1
++#else
++#define NFCX_X64_AVAILABLE 0
++#endif
++
++/* One probed nonce that already passed the 3-bit parity check. */
++typedef struct {
++  uint32_t ks1;   /* NtEnc ^ NtProbe                         */
++  uint32_t in;    /* NtProbe ^ uid, as fed to lfsr_recovery32 */
++} nfcx_probe_job;
++
++/* Number of usable CPUs, clamped to [1, NFCX_PERF_MAX_THREADS]. */
++int nfcx_perf_cpu_count(void);
++
++/* Normalise a requested thread count against the available CPUs.
++   n <= 0 means "all available CPUs". */
++int nfcx_perf_clamp_threads(int n);
++
++/* Scan jobs[] with threads workers and return every recovered 48-bit key.
++
++   The returned array is allocated with malloc() and must be freed by the
++   caller; *out_len receives the number of entries. Candidates are grouped per
++   worker (worker 0 first), so the order is deterministic for a given
++   (job_count, threads) pair - callers may sort/deduplicate as they wish.
++   Returns 0 on success and -1 on allocation failure. */
++int nfcx_scan_probes(const nfcx_probe_job *jobs, size_t job_count,
++                     int threads, uint64_t **out_keys, size_t *out_len);
++
++/* Serial reference implementation of the same scan; used by tests and by the
++   benchmark harness to compute the parallel speed-up. */
++int nfcx_scan_probes_serial(const nfcx_probe_job *jobs, size_t job_count,
++                            uint64_t **out_keys, size_t *out_len);
++
++/* 64-bit wide equivalent of mfoc's valid_nonce(): checks the three nonce
++   parity bits in a single 64-bit expression. Always available at runtime on
++   64-bit builds; see NFCX_X64_AVAILABLE. */
++int nfcx_valid_nonce_wide(uint32_t nt, uint32_t nt_enc, uint32_t ks1,
++                          const uint8_t *parity);
++
++#endif /* NFCX_PERF_H */
+diff --git a/tests/Makefile.am b/tests/Makefile.am
+new file mode 100644
+index 0000000..8495e4e
+--- /dev/null
++++ b/tests/Makefile.am
+@@ -0,0 +1,9 @@
++AM_CPPFLAGS = -I$(top_srcdir)/src
++AM_CFLAGS   = @PTHREAD_CFLAGS@
++
++check_PROGRAMS = nfcx-perf-test
++
++TESTS = nfcx-perf-test
++
++nfcx_perf_test_SOURCES = nfcx-perf-test.c
++nfcx_perf_test_LDADD   = $(top_builddir)/src/libmfocattack.a @PTHREAD_LIBS@
+diff --git a/tests/nfcx-perf-test.c b/tests/nfcx-perf-test.c
+new file mode 100644
+index 0000000..8a8f6b6
+--- /dev/null
++++ b/tests/nfcx-perf-test.c
+@@ -0,0 +1,193 @@
++/*  nfcx-perf-test.c
++
++    Checks for the NFCX performance extension:
++
++      1. nfcx_valid_nonce_wide() (the -X 64-bit code path) must agree with the
++         portable, upstream valid_nonce() formula for every input.
++      2. The parallel probe scanner (-H) must recover exactly the same
++         candidate keys as the serial scanner.
++      3. Wall-clock speed-up of the parallel scanner over the serial one.
++
++    Build with "make check" (automake) or:
++      cc -O2 -I../src nfcx-perf-test.c ../src/libmfocattack.a -lpthread
++*/
++
++/* clock_gettime / CLOCK_MONOTONIC under -std=c99 (must precede <time.h>) */
++#if !defined(_WIN32) && !defined(_POSIX_C_SOURCE)
++#define _POSIX_C_SOURCE 200809L
++#endif
++
++#include <stdint.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <time.h>
++
++#include "crapto1.h"
++#include "nfcx-perf.h"
++
++#define PARITY_TRIALS 2000000
++#define SCAN_JOBS 24
++#define SPEEDUP_JOBS 32
++
++static unsigned ref_odd_parity(unsigned i)
++{
++  return ((i ^ i >> 1 ^ i >> 2 ^ i >> 3 ^ i >> 4 ^ i >> 5 ^ i >> 6 ^ i >> 7 ^ 1) & 1);
++}
++
++/* Verbatim copy of upstream valid_nonce() from src/mfoc.c. */
++static int ref_valid_nonce(uint32_t Nt, uint32_t NtEnc, uint32_t Ks1, const uint8_t *parity)
++{
++  return ((ref_odd_parity((Nt >> 24) & 0xFF) == ((parity[0]) ^ ref_odd_parity((NtEnc >> 24) & 0xFF) ^ (((Ks1) >> (16)) & 1))) &
++          (ref_odd_parity((Nt >> 16) & 0xFF) == ((parity[1]) ^ ref_odd_parity((NtEnc >> 16) & 0xFF) ^ (((Ks1) >> (8)) & 1))) &
++          (ref_odd_parity((Nt >> 8) & 0xFF) == ((parity[2]) ^ ref_odd_parity((NtEnc >> 8) & 0xFF) ^ (((Ks1) >> (0)) & 1)))) ? 1 : 0;
++}
++
++static double now_seconds(void)
++{
++  struct timespec ts;
++  clock_gettime(CLOCK_MONOTONIC, &ts);
++  return (double)ts.tv_sec + (double)ts.tv_nsec / 1e9;
++}
++
++static int cmp_u64(const void *a, const void *b)
++{
++  uint64_t x = *(const uint64_t *)a, y = *(const uint64_t *)b;
++  return (x > y) - (x < y);
++}
++
++static int test_parity(void)
++{
++  uint32_t state = 0x12345678u;
++  int failures = 0;
++  long i;
++
++  for (i = 0; i < PARITY_TRIALS; ++i) {
++    uint8_t parity[3];
++    uint32_t nt, nt_enc, ks1;
++    state = state * 1103515245u + 12345u;
++    nt = state;
++    state = state * 1103515245u + 12345u;
++    nt_enc = state;
++    state = state * 1103515245u + 12345u;
++    ks1 = state;
++    parity[0] = (uint8_t)(state >> 7) & 1;
++    parity[1] = (uint8_t)(state >> 11) & 1;
++    parity[2] = (uint8_t)(state >> 13) & 1;
++    if (nfcx_valid_nonce_wide(nt, nt_enc, ks1, parity) != ref_valid_nonce(nt, nt_enc, ks1, parity)) {
++      if (failures < 5) {
++        printf("FAIL wide parity mismatch: nt=%08x nt_enc=%08x ks1=%08x parity=%d%d%d\n",
++               nt, nt_enc, ks1, parity[0], parity[1], parity[2]);
++      }
++      ++failures;
++    }
++  }
++  printf("%-38s %s (%ld cases)\n", "wide parity == upstream valid_nonce",
++         failures == 0 ? "ok" : "FAILED", (long)PARITY_TRIALS);
++  return failures == 0 ? 0 : 1;
++}
++
++static void make_jobs(nfcx_probe_job *jobs, size_t count)
++{
++  uint32_t state = 0x9e3779b9u;
++  size_t i;
++
++  for (i = 0; i < count; ++i) {
++    state = state * 1664525u + 1013904223u;
++    jobs[i].ks1 = state;
++    state = state * 1664525u + 1013904223u;
++    jobs[i].in = state;
++  }
++}
++
++static int test_scan_equivalence(void)
++{
++  nfcx_probe_job jobs[SCAN_JOBS];
++  uint64_t *serial = NULL, *parallel = NULL;
++  size_t serial_len = 0, parallel_len = 0;
++  int status = 0;
++
++  make_jobs(jobs, SCAN_JOBS);
++  if (nfcx_scan_probes_serial(jobs, SCAN_JOBS, &serial, &serial_len) != 0 ||
++      nfcx_scan_probes(jobs, SCAN_JOBS, nfcx_perf_clamp_threads(0), &parallel, &parallel_len) != 0) {
++    printf("FAIL scanner allocation\n");
++    free(serial);
++    free(parallel);
++    return 1;
++  }
++  if (serial_len != parallel_len) {
++    printf("FAIL candidate count differs: serial=%zu parallel=%zu\n", serial_len, parallel_len);
++    status = 1;
++  } else {
++    qsort(serial, serial_len, sizeof(*serial), cmp_u64);
++    qsort(parallel, parallel_len, sizeof(*parallel), cmp_u64);
++    if (serial_len != 0 && memcmp(serial, parallel, serial_len * sizeof(*serial)) != 0) {
++      printf("FAIL candidate sets differ\n");
++      status = 1;
++    } else {
++      printf("%-38s ok (%zu candidates)\n", "parallel == serial candidates", serial_len);
++    }
++  }
++  free(serial);
++  free(parallel);
++  return status;
++}
++
++static int test_speedup(void)
++{
++  nfcx_probe_job jobs[SPEEDUP_JOBS];
++  uint64_t *keys = NULL;
++  size_t len = 0, i;
++  double serial_seconds = 0.0, parallel_seconds = 0.0;
++  int threads = nfcx_perf_clamp_threads(0);
++  int status = 0;
++
++  make_jobs(jobs, SPEEDUP_JOBS);
++  for (i = 0; i < 3; ++i) {
++    double start = now_seconds();
++    if (nfcx_scan_probes_serial(jobs, SPEEDUP_JOBS, &keys, &len) != 0) {
++      printf("FAIL serial scan allocation\n");
++      free(keys);
++      return 1;
++    }
++    serial_seconds = now_seconds() - start;
++    free(keys);
++    keys = NULL;
++    start = now_seconds();
++    if (nfcx_scan_probes(jobs, SPEEDUP_JOBS, threads, &keys, &len) != 0) {
++      printf("FAIL parallel scan allocation\n");
++      free(keys);
++      return 1;
++    }
++    parallel_seconds = now_seconds() - start;
++    free(keys);
++    keys = NULL;
++    printf("%-38s serial %.3fs  parallel %.3fs (%d threads)  speed-up %.2fx\n",
++           i == 0 ? "scan wall clock" : "", serial_seconds, parallel_seconds, threads,
++           parallel_seconds > 0.0 ? serial_seconds / parallel_seconds : 0.0);
++    if (serial_seconds / (parallel_seconds > 0.0 ? parallel_seconds : 1.0) < 1.5) {
++      status = 1;
++    }
++  }
++  if (status != 0) {
++    printf("FAIL parallel scanner did not reach a 1.5x speed-up\n");
++  }
++  return status;
++}
++
++int main(void)
++{
++  int failures = 0;
++
++  printf("nfcx-perf-test: %d CPUs, x64 fast path %s\n", nfcx_perf_cpu_count(),
++         NFCX_X64_AVAILABLE ? "compiled in" : "unavailable");
++  failures += test_parity();
++  failures += test_scan_equivalence();
++  failures += test_speedup();
++  if (failures != 0) {
++    printf("RESULT: FAILED\n");
++    return 1;
++  }
++  printf("RESULT: PASSED\n");
++  return 0;
++}
