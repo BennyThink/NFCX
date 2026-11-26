@@ -6,4 +6,4 @@ MFOC_SOURCE_URL="https://github.com/nfc-tools/mfoc/archive/refs/tags/mfoc-0.10.7
 MFOC_SOURCE_SHA256="2dfd8ffa4a8b357807680d190a91c8cf3db54b4211a781edc1108af401dbaad7"
 MFOC_LICENSE="GPL-2.0-or-later"
 MFOC_LIBNFC_VERSION="1.8.0"
-MFOC_PATCH_SERIES="0001-avoid-errno-macro-collision.patch"
+MFOC_PATCH_SERIES="0001-avoid-errno-macro-collision.patch 0002-add-high-performance-and-x64-modes.patch"

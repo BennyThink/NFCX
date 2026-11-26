@@ -135,7 +135,8 @@ func (e *HardnestedEngine) Run(ctx context.Context, request AttackRequest, emit 
 }
 
 func hardnestedArguments(known []MFoCKnownKey, outputPath string) []string {
-	return append([]string{"-C", "-F"}, mfocArguments(known, outputPath)...)
+	// mfoc-hardnested is not patched with the NFCX modes; always use balanced.
+	return append([]string{"-C", "-F"}, mfocArguments(known, outputPath, MFoCModeBalanced)...)
 }
 
 func parseHardnestedVersion(streams ...[]byte) string {

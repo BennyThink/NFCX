@@ -22,6 +22,43 @@ import (
 
 const MFoCVersion = "0.10.7"
 
+// MFoCMode selects the NFCX runtime mode passed to the bundled mfoc binary.
+//
+//   - balanced: upstream behaviour, unchanged.
+//   - high_performance: mfoc -H, the Nested probe window is scanned on every
+//     CPU core (NFCX_MFOC_THREADS overrides the worker count).
+//   - x64: mfoc -X, the nonce parity check runs through the 64-bit wide fast
+//     path; the bundled 32-bit builds reject it.
+type MFoCMode string
+
+const (
+	MFoCModeBalanced        MFoCMode = "balanced"
+	MFoCModeHighPerformance MFoCMode = "high_performance"
+	MFoCModeX64             MFoCMode = "x64"
+)
+
+func (m MFoCMode) Valid() bool {
+	switch m {
+	case MFoCModeBalanced, MFoCModeHighPerformance, MFoCModeX64:
+		return true
+	default:
+		return false
+	}
+}
+
+// flag returns the mfoc command line switch for the mode, if any.
+func (m MFoCMode) flag() string {
+	switch m {
+	case MFoCModeHighPerformance:
+		return "-H"
+	case MFoCModeX64:
+		return "-X"
+	default:
+		return ""
+	}
+}
+
+
 var (
 	mfocExecutable = runtimebundle.Executable{ID: "mfoc", FileName: "mfoc", WindowsFileName: "mfoc.exe"}
 	mfocVersionRE  = regexp.MustCompile(`(?i)mfoc version\s+([0-9]+(?:\.[0-9]+)+)`)
@@ -40,6 +77,8 @@ type MFoCKnownKey struct {
 type MFoCInvocation struct {
 	Card      nfc.CardInfo
 	KnownKeys []MFoCKnownKey
+	// Mode selects the NFCX performance mode; the zero value is balanced.
+	Mode MFoCMode
 }
 
 type MFoCEngine struct {
@@ -52,6 +91,9 @@ type MFoCEngine struct {
 func NewMFoCEngine(locator *runtimebundle.Locator, invocation MFoCInvocation) *MFoCEngine {
 	invocation.Card = invocation.Card.Clone()
 	invocation.KnownKeys = append([]MFoCKnownKey(nil), invocation.KnownKeys...)
+	if invocation.Mode == "" {
+		invocation.Mode = MFoCModeBalanced
+	}
 	return &MFoCEngine{locator: locator, runner: newProcessRunner(), invocation: invocation}
 }
 
@@ -81,6 +123,9 @@ func (e *MFoCEngine) Available(ctx context.Context) error {
 	if !mfocHelpSupportsKnownKey(result.Stdout, result.Stderr) {
 		return errors.New("mfoc help does not advertise the required repeatable -k key option")
 	}
+	if flag := e.invocation.Mode.flag(); flag != "" && !mfocHelpSupportsMode(flag, result.Stdout, result.Stderr) {
+		return fmt.Errorf("mfoc help does not advertise the %s mode required by %q", flag, e.invocation.Mode)
+	}
 	return nil
 }
 
@@ -107,7 +152,11 @@ func (e *MFoCEngine) Run(ctx context.Context, request AttackRequest, emit func(A
 	}
 	outputPath := filepath.Join(request.WorkingDir, "mfoc-result.mfd")
 	if emit != nil {
-		emit(AttackEvent{Engine: e.Name(), State: StateStarting, Message: "starting bundled mfoc"})
+		message := "starting bundled mfoc"
+		if e.invocation.Mode != MFoCModeBalanced {
+			message = fmt.Sprintf("starting bundled mfoc in %s mode", e.invocation.Mode)
+		}
+		emit(AttackEvent{Engine: e.Name(), State: StateStarting, Message: message})
 	}
 	stream := newMFoCStreamEmitter(emit, mfocSectorCount(e.invocation.Card), e.Name())
 	environment := map[string]string{
@@ -120,7 +169,7 @@ func (e *MFoCEngine) Run(ctx context.Context, request AttackRequest, emit func(A
 	}
 	process, runErr := e.runner.run(ctx, e.Name(), command{
 		Path: path,
-		Args: mfocArguments(e.invocation.KnownKeys, outputPath),
+		Args: mfocArguments(e.invocation.KnownKeys, outputPath, e.invocation.Mode),
 		Dir:  request.WorkingDir,
 		Env:  environment,
 	}, stream.emit)
@@ -196,6 +245,13 @@ func (e *MFoCEngine) validateInvocation() error {
 }
 
 func validateMFoCInvocation(invocation MFoCInvocation) error {
+	mode := invocation.Mode
+	if mode == "" {
+		mode = MFoCModeBalanced
+	}
+	if !mode.Valid() {
+		return fmt.Errorf("unsupported mfoc mode %q", invocation.Mode)
+	}
 	if len(invocation.KnownKeys) == 0 {
 		return errors.New("at least one NFCX-verified key is required")
 	}
@@ -212,7 +268,7 @@ func validateMFoCInvocation(invocation MFoCInvocation) error {
 	return nil
 }
 
-func mfocArguments(known []MFoCKnownKey, outputPath string) []string {
+func mfocArguments(known []MFoCKnownKey, outputPath string, mode MFoCMode) []string {
 	unique := make(map[nfc.Key]struct{}, len(known))
 	values := make([]string, 0, len(known))
 	for _, entry := range known {
@@ -223,9 +279,12 @@ func mfocArguments(known []MFoCKnownKey, outputPath string) []string {
 		values = append(values, fmt.Sprintf("%012X", entry.Value))
 	}
 	sort.Strings(values)
-	arguments := make([]string, 0, len(values)*2+2)
+	arguments := make([]string, 0, len(values)*2+3)
 	for _, value := range values {
 		arguments = append(arguments, "-k", value)
+	}
+	if flag := mode.flag(); flag != "" {
+		arguments = append(arguments, flag)
 	}
 	return append(arguments, "-O", outputPath)
 }
@@ -242,6 +301,15 @@ func parseMFoCVersion(streams ...[]byte) string {
 
 func mfocHelpSupportsKnownKey(streams ...[]byte) bool {
 	return bytes.Contains(bytes.Join(streams, []byte{'\n'}), []byte("[-k key]..."))
+}
+
+// mfocHelpSupportsMode reports whether the bundled help text advertises the
+// given NFCX mode switch (-H or -X) on its usage line.
+func mfocHelpSupportsMode(flag string, streams ...[]byte) bool {
+	if flag == "" {
+		return true
+	}
+	return bytes.Contains(bytes.Join(streams, []byte{'\n'}), []byte("["+flag+"]"))
 }
 
 func validateMFoCDump(card nfc.CardInfo, raw []byte) (mifare.Dump, error) {

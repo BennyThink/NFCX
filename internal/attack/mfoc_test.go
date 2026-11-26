@@ -75,7 +75,7 @@ func TestMFoCArgumentsDeduplicateTypedSeeds(t *testing.T) {
 		{Sector: 1, Type: nfc.KeyTypeA, Value: first},
 		{Sector: 9, Type: nfc.KeyTypeB, Value: first},
 		{Sector: 2, Type: nfc.KeyTypeB, Value: second},
-	}, path)
+	}, path, MFoCModeBalanced)
 	want := []string{"-k", "010203040506", "-k", "AABBCCDDEEFF", "-O", path}
 	if strings.Join(arguments, "\x00") != strings.Join(want, "\x00") {
 		t.Fatalf("arguments = %#v; want %#v", arguments, want)
@@ -97,5 +97,81 @@ func TestMFoCProgressParserAcceptsArbitraryChunks(t *testing.T) {
 	}
 	if !progress || !strings.Contains(strings.ToLower(combined), "aabbccddeeff") {
 		t.Fatalf("events = %+v", events)
+	}
+}
+
+func TestMFoCModeValidation(t *testing.T) {
+	for _, test := range []struct {
+		mode MFoCMode
+		flag string
+		ok   bool
+	}{
+		{MFoCModeBalanced, "", true},
+		{MFoCModeHighPerformance, "-H", true},
+		{MFoCModeX64, "-X", true},
+		{MFoCMode("turbo"), "", false},
+	} {
+		if test.mode.Valid() != test.ok {
+			t.Fatalf("mode %q Valid() = %v; want %v", test.mode, test.mode.Valid(), test.ok)
+		}
+		if test.mode.flag() != test.flag {
+			t.Fatalf("mode %q flag = %q; want %q", test.mode, test.mode.flag(), test.flag)
+		}
+	}
+	invocation := MFoCInvocation{
+		Card:      nfc.CardInfo{UID: []byte{1, 2, 3, 4}, SAK: 0x08},
+		KnownKeys: []MFoCKnownKey{{Sector: 0, Type: nfc.KeyTypeA, Value: nfc.Key{1}}},
+		Mode:      MFoCMode("turbo"),
+	}
+	if err := validateMFoCInvocation(invocation); err == nil {
+		t.Fatal("validateMFoCInvocation accepted an unknown mode")
+	}
+	invocation.Mode = ""
+	if err := validateMFoCInvocation(invocation); err != nil {
+		t.Fatalf("empty mode must default to balanced: %v", err)
+	}
+}
+
+func TestMFoCArgumentsAppendModeFlags(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "result.mfd")
+	known := []MFoCKnownKey{{Sector: 0, Type: nfc.KeyTypeA, Value: nfc.Key{1, 2, 3, 4, 5, 6}}}
+	for _, test := range []struct {
+		mode MFoCMode
+		want []string
+	}{
+		{MFoCModeBalanced, []string{"-k", "010203040506", "-O", path}},
+		{MFoCModeHighPerformance, []string{"-k", "010203040506", "-H", "-O", path}},
+		{MFoCModeX64, []string{"-k", "010203040506", "-X", "-O", path}},
+	} {
+		got := mfocArguments(known, path, test.mode)
+		if strings.Join(got, "\x00") != strings.Join(test.want, "\x00") {
+			t.Fatalf("mode %q arguments = %#v; want %#v", test.mode, got, test.want)
+		}
+	}
+}
+
+func TestMFoCEngineAcceptsAdvertisedModes(t *testing.T) {
+	card := nfc.CardInfo{UID: []byte{1, 2, 3, 4}, SAK: 0x08}
+	key := nfc.Key{0xff, 0xff, 0xff, 0xff, 0xff, 0xff}
+	for _, mode := range []MFoCMode{MFoCModeBalanced, MFoCModeHighPerformance, MFoCModeX64} {
+		engine := NewMFoCEngine(runtimebundle.NewLocator(fixtureRuntimeRoot), MFoCInvocation{
+			Card: card, KnownKeys: []MFoCKnownKey{{Sector: 3, Type: nfc.KeyTypeB, Value: key}}, Mode: mode,
+		})
+		if err := engine.Available(context.Background()); err != nil {
+			t.Fatalf("mode %q availability: %v", mode, err)
+		}
+	}
+}
+
+func TestMFoCHelpWithoutModesIsRejected(t *testing.T) {
+	legacy := []byte("Usage: mfoc [-h] [-k key]... [-O output]\n")
+	if mfocHelpSupportsMode("-H", legacy) {
+		t.Fatal("legacy help text must not advertise -H")
+	}
+	current := []byte("Usage: mfoc [-h] [-k key]... [-O output] [-H] [-X]\n")
+	for _, flag := range []string{"-H", "-X"} {
+		if !mfocHelpSupportsMode(flag, current) {
+			t.Fatalf("current help text does not advertise %s", flag)
+		}
 	}
 }

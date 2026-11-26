@@ -20,6 +20,7 @@ Website: [nfcx.tools](https://nfcx.tools) · Downloads: [GitHub Releases](https:
 - Save and load compatible raw dumps (`.bin` / `.mfd`) with sidecar metadata; restore with capacity, BCC, access-bit, and per-block read-back checks.
 - Scan common keys and manage a local key catalog.
 - Run the integrated recovery sequence on a validated PN532 UART reader: common keys, Darkside, Nested, Hardnested, and read verification.
+- Pick an mfoc performance mode: balanced (upstream), high performance (the Nested probe window is scanned on every CPU core), or x64 (64-bit wide nonce parity check).
 - Use the guarded 4-byte UID/block 0 workflow for supported CUID/Gen2 and Gen1A cards.
 
 # Supported readers

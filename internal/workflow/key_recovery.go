@@ -82,6 +82,8 @@ type KeyRecoveryRequest struct {
 	NestedTimeout     time.Duration
 	HardnestedTimeout time.Duration
 	TemporaryPolicy   attack.TemporaryPolicy
+	// Mode selects the mfoc performance mode used by the Nested stage.
+	Mode attack.MFoCMode
 }
 
 type KeyRecoveryResult struct {
@@ -251,7 +253,7 @@ func (s *KeyRecoveryService) Run(ctx context.Context, request KeyRecoveryRequest
 			updateRecoveryStep(&result, emitter, 3, KeyRecoveryRunning, 0, true, fmt.Sprintf("第 3/5 步：Nested 正在恢复剩余密钥，最长运行 %s", nestedTimeout))
 			result.MFoC, nestedErr = s.mfoc.Run(ctx, MFoCRequest{
 				TaskID: request.TaskID + "-nested", Card: request.Card, Device: request.Device, Authorized: true,
-				Timeout: nestedTimeout, TemporaryPolicy: request.TemporaryPolicy,
+				Timeout: nestedTimeout, TemporaryPolicy: request.TemporaryPolicy, Mode: request.Mode,
 			}, func(event attack.AttackEvent) {
 				copy := event
 				emitter(KeyRecoveryEvent{Step: 3, Stage: KeyRecoveryNested, Status: KeyRecoveryRunning, Indeterminate: true, Message: "第 3/5 步：" + event.Message, Attack: &copy})

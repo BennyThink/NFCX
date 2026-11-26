@@ -20,6 +20,7 @@ NFCX 坚持开源，并用清晰、直接的 GUI 让 NFC 操作不再依赖零�
 - 保存和加载兼容的原始 dump（`.bin` / `.mfd`）及并列元数据；恢复时执行容量、BCC、访问控制位和逐块回读检查。
 - 扫描常见密钥，并管理本地密钥目录。
 - 在已验证的 PN532 UART 读卡器上运行集成恢复流程：常见密钥、Darkside、Nested、Hardnested 与读取验证。
+- 选择 mfoc 运行模式：标准（上游行为）、高性能（Nested 探测窗口在全部 CPU 核心上并行扫描）、x64（64 位宽 nonce 奇偶校验）。
 - 对支持的 CUID/Gen2 和 Gen1A 卡片执行受保护的 4-byte UID/block 0 写入。 
 
 # 支持的读卡器

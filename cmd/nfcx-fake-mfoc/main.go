@@ -21,7 +21,7 @@ func main() {
 				return
 			}
 			fmt.Println("This is mfoc version 0.10.7.")
-			fmt.Println("Usage: mfoc [-h] [-k key]... [-O output]")
+			fmt.Println("Usage: mfoc [-h] [-k key]... [-O output] [-H] [-X]")
 			return
 		}
 	}
